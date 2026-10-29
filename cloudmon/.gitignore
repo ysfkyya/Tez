@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
+venv/
+.venv/
+
+# Environment ve secrets — API anahtarlarını commit'leme!
+.env
+*.env
+
+# Eğitilmiş model dosyaları (büyük binary — pipeline ile yeniden üret)
+data/processed/models/
+
+# Türetilmiş özellik matrisi (pipeline çıktısı)
+data/processed/features.csv
+data/processed/metrics_loaded.csv
+
+# Pipeline çıktıları — raporlar ve grafikler izleniyor
+# Sadece büyük binary model dosyaları ignore
+
+# Geçici / IDE / OS
+catboost_info/
+*.log
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

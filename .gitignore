@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.env
+
+# Sanal ortam
+venv/
+.venv/
+
+# ML kütüphane çıktıları
+catboost_info/
+
+# Sistem
+.DS_Store
+*.swp
