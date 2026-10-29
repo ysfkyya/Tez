@@ -1,10 +1,312 @@
-% TODO: Bulgular bölümü — CloudMon deney sonuçları
-% - 42 model karşılaştırma tabloları (vCPU, Bellek, Disk × 24h, 72h)
-% - SHAP özellik önem grafikleri
-% - Log anomali tespiti sonuçları
-% - Öneri motoru çıktı örnekleri
-
 \chapter{BULGULAR}
 \label{ch:bulgular}
 
-Bu bölüm yazılacak.
+Bu bölümde CloudMon sisteminin OpenStack tabanlı gerçek bulut altyapısı üzerindeki deneysel sonuçları sunulmaktadır.
+Önce 42 regresyon modelinin kapasite tahmin performansları karşılaştırılmakta, ardından SHAP açıklanabilirlik analizi ve log işleme pipeline bulgularına yer verilmektedir.
+Son olarak öneri motoru ve LLM entegrasyonunun ürettiği örnek operasyonel rapor incelenmektedir.
+
+
+\section{Kapasite Tahmin Modeli Performansı}
+\label{sec:bulgu-kapasite}
+
+Yedi algoritma, üç kaynak (vCPU, Bellek, Disk) ve iki tahmin ufku (24\,s, 72\,s) kombinasyonu için toplam 42 model değerlendirilmiştir.
+Test kümesi olarak Nisan--Haziran 2026 dönemi kullanılmıştır (3 ay, $\approx$2.208 saatlik gözlem noktası).
+Model sıralaması R\textsuperscript{2} skoru esas alınarak yapılmıştır.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.95\textwidth]{capacity_model_comparison}
+    \caption{Tüm modeller için R\textsuperscript{2} karşılaştırması — vCPU, Bellek ve Disk kaynakları, 24 ve 72 saatlik ufuklar.}
+    \label{fig:model-karsilastirma}
+\end{figure}
+
+
+\subsection{vCPU Kapasite Tahmini}
+
+vCPU tahmin sonuçları \autoref{tab:vcpu24} ve \autoref{tab:vcpu72}'de verilmektedir.
+
+\begin{table}[htbp]
+    \centering
+    \caption{vCPU kullanım oranı için 24 saatlik tahmin sonuçları (test kümesi)}
+    \label{tab:vcpu24}
+    \begin{tabular}{lrrrr}
+        \textbf{Model} & \textbf{MAE} & \textbf{RMSE} & \textbf{R\textsuperscript{2}} & \textbf{MAPE} \\
+        \hline
+        Doğrusal Regresyon  & \textbf{0,9051} & \textbf{1,2929} & \textbf{0,9577} & \textbf{1,099} \\
+        Gradyan Artırmalı   & 4,3037 & 5,9377 & 0,1079 & 5,017 \\
+        LightGBM            & 4,2910 & 5,9953 & 0,0906 & 4,992 \\
+        MLP                 & 4,3276 & 6,1133 & 0,0544 & 5,234 \\
+        Rastgele Orman      & 4,4963 & 6,1418 & 0,0456 & 5,249 \\
+        XGBoost             & 4,4820 & 6,1741 & 0,0355 & 5,225 \\
+        CatBoost            & 7,8522 & 9,7100 & $-$1,3855 & 9,297 \\
+    \end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+    \centering
+    \caption{vCPU kullanım oranı için 72 saatlik tahmin sonuçları (test kümesi)}
+    \label{tab:vcpu72}
+    \begin{tabular}{lrrrr}
+        \textbf{Model} & \textbf{MAE} & \textbf{RMSE} & \textbf{R\textsuperscript{2}} & \textbf{MAPE} \\
+        \hline
+        Doğrusal Regresyon  & \textbf{1,8648} & \textbf{2,9505} & \textbf{0,7728} & \textbf{2,222} \\
+        MLP                 & 3,7797 & 5,1993 & 0,2946 & 4,644 \\
+        Rastgele Orman      & 6,1283 & 7,7583 & $-$0,5707 & 7,219 \\
+        Gradyan Artırmalı   & 6,4734 & 7,9596 & $-$0,6533 & 7,665 \\
+        LightGBM            & 6,5221 & 8,0019 & $-$0,6709 & 7,728 \\
+        XGBoost             & 6,7494 & 8,1868 & $-$0,7490 & 8,008 \\
+        CatBoost            & 10,7391 & 12,2504 & $-$2,9162 & 12,859 \\
+    \end{tabular}
+\end{table}
+
+vCPU tahmininde en dikkat çekici bulgu, Doğrusal Regresyon modelinin ağaç tabanlı tüm algoritmaları büyük farkla geride bırakmasıdır.
+24 saatlik ufukta LR, R\textsuperscript{2}\,=\,0{,}9577 değeriyle son derece yüksek tahmin başarısı sergilemekte; en yakın rakip olan Gradyan Artırmalı Ağaçlar ise R\textsuperscript{2}\,=\,0{,}1079 ile kalmaktadır.
+Bu dramatik ayrışma, vCPU kullanım serisinin test döneminde güçlü doğrusal trend içerdiğine işaret etmektedir.
+LR'nin bu trendi eğitim setinden doğrudan öğrendiği ve genellediği anlaşılmaktadır; ağaç tabanlı modeller ise yerel örüntülere aşırı uyduğu için doğrusal trendi takip edememektedir.
+72 saatlik ufukta da LR üstünlüğü korunmakla birlikte R\textsuperscript{2} değeri 0{,}7728'e gerilemiştir.
+
+
+\subsection{Bellek Kapasite Tahmini}
+
+\begin{table}[htbp]
+    \centering
+    \caption{Bellek kullanım oranı için 24 saatlik tahmin sonuçları (test kümesi)}
+    \label{tab:mem24}
+    \begin{tabular}{lrrrr}
+        \textbf{Model} & \textbf{MAE} & \textbf{RMSE} & \textbf{R\textsuperscript{2}} & \textbf{MAPE} \\
+        \hline
+        Doğrusal Regresyon  & \textbf{2,1254} & \textbf{3,3819} & \textbf{0,7945} & \textbf{2,374} \\
+        MLP                 & 4,0228 & 5,6451 & 0,4276 & 4,557 \\
+        Rastgele Orman      & 4,3836 & 5,6655 & 0,4234 & 4,810 \\
+        Gradyan Artırmalı   & 4,4143 & 5,7472 & 0,4067 & 4,838 \\
+        LightGBM            & 4,4281 & 5,9033 & 0,3740 & 4,834 \\
+        XGBoost             & 4,5187 & 5,9234 & 0,3697 & 4,945 \\
+        CatBoost            & 5,1914 & 6,9034 & 0,1439 & 5,666 \\
+    \end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+    \centering
+    \caption{Bellek kullanım oranı için 72 saatlik tahmin sonuçları (test kümesi)}
+    \label{tab:mem72}
+    \begin{tabular}{lrrrr}
+        \textbf{Model} & \textbf{MAE} & \textbf{RMSE} & \textbf{R\textsuperscript{2}} & \textbf{MAPE} \\
+        \hline
+        MLP                 & \textbf{3,8168} & \textbf{5,9307} & \textbf{0,3456} & \textbf{4,352} \\
+        Doğrusal Regresyon  & 4,3523 & 5,9499 & 0,3414 & 4,941 \\
+        LightGBM            & 7,1491 & 8,6864 & $-$0,4038 & 7,910 \\
+        XGBoost             & 7,6910 & 9,2829 & $-$0,6032 & 8,518 \\
+        Gradyan Artırmalı   & 8,9059 & 10,6354 & $-$1,1044 & 9,865 \\
+        CatBoost            & 9,8530 & 11,4679 & $-$1,4467 & 10,976 \\
+        Rastgele Orman      & 12,2808 & 14,3745 & $-$2,8442 & 13,662 \\
+    \end{tabular}
+\end{table}
+
+Bellek tahmininde de 24 saatlik ufukta LR üstün gelmektedir (R\textsuperscript{2}\,=\,0{,}7945).
+Ancak ağaç tabanlı modeller burada kısmen pozitif R\textsuperscript{2} üretmektedir (RF: 0{,}4234, GBT: 0{,}4067), bu da bellek serisinin vCPU'ya kıyasla daha fazla doğrusal olmayan bileşen içerdiğine işaret etmektedir.
+72 saatlik ufukta ise MLP, LR'yi geçerek birinci sıraya taşınmaktadır (MLP: 0{,}3456, LR: 0{,}3414); her iki değer de yakındır.
+Ağaç tabanlı modeller 72 saatlik bellek tahmininde negatif R\textsuperscript{2} üretmekte, yani rastgele tahminden dahi kötü performans sergilemektedir.
+
+
+\subsection{Disk Kapasite Tahmini}
+
+\begin{table}[htbp]
+    \centering
+    \caption{Disk kullanım oranı için 24 saatlik tahmin sonuçları (test kümesi)}
+    \label{tab:disk24}
+    \begin{tabular}{lrrrr}
+        \textbf{Model} & \textbf{MAE} & \textbf{RMSE} & \textbf{R\textsuperscript{2}} & \textbf{MAPE} \\
+        \hline
+        Doğrusal Regresyon  & \textbf{1,6792} & \textbf{2,7694} & \textbf{0,6984} & \textbf{2,069} \\
+        MLP                 & 3,2982 & 4,4248 & 0,2301 & 4,057 \\
+        LightGBM            & 6,7634 & 8,3464 & $-$1,7392 & 8,186 \\
+        XGBoost             & 6,8345 & 8,4441 & $-$1,8037 & 8,270 \\
+        Rastgele Orman      & 7,3101 & 8,9521 & $-$2,1512 & 8,856 \\
+        CatBoost            & 7,6745 & 9,1966 & $-$2,3257 & 9,342 \\
+        Gradyan Artırmalı   & 11,1993 & 13,4486 & $-$6,1119 & 13,624 \\
+    \end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+    \centering
+    \caption{Disk kullanım oranı için 72 saatlik tahmin sonuçları (test kümesi)}
+    \label{tab:disk72}
+    \begin{tabular}{lrrrr}
+        \textbf{Model} & \textbf{MAE} & \textbf{RMSE} & \textbf{R\textsuperscript{2}} & \textbf{MAPE} \\
+        \hline
+        MLP                 & \textbf{3,1368} & \textbf{4,3606} & \textbf{0,2212} & \textbf{3,839} \\
+        XGBoost             & 7,1654 & 8,5906 & $-$2,0228 & 8,698 \\
+        LightGBM            & 7,2892 & 8,7119 & $-$2,1087 & 8,850 \\
+        Doğrusal Regresyon  & 5,3012 & 9,1156 & $-$2,4035 & 6,541 \\
+        Rastgele Orman      & 8,1941 & 9,5258 & $-$2,7168 & 9,986 \\
+        Gradyan Artırmalı   & 9,4710 & 11,1803 & $-$4,1199 & 11,550 \\
+        CatBoost            & 10,6646 & 11,7958 & $-$4,6992 & 13,103 \\
+    \end{tabular}
+\end{table}
+
+Disk tahmininde en belirgin gözlem, 72 saatlik ufukta LR'nin performansının kötüleşmesidir: 24 saatte R\textsuperscript{2}\,=\,0{,}6984 ile lider olan LR, 72 saatte R\textsuperscript{2}\,=\,$-$2{,}4035'e düşmektedir.
+Bu durum, disk kullanım serisinin kısa vadede doğrusal, uzun vadede ise daha karmaşık bir örüntü izlediğini göstermektedir.
+72 saatlik disk tahmininde MLP (R\textsuperscript{2}\,=\,0{,}2212) tüm modeller içinde tek pozitif R\textsuperscript{2}'yi üretmektedir; bununla birlikte bu değer pratik tahmin gücünün sınırında kalmaktadır.
+
+
+\subsection{Genel Değerlendirme}
+
+Altı (kaynak, ufuk) senaryosu boyunca elde edilen bulgular üç temel örüntü ortaya koymaktadır:
+
+\begin{enumerate}
+    \item \textbf{Doğrusal model üstünlüğü (24 saatlik ufuk):}
+    LR, üç kaynakta da 24 saatlik tahminlerde en yüksek R\textsuperscript{2}'yi elde etmiştir.
+    Bu durum, test dönemindeki güçlü monoton trendlerin regresyon özelliklerine (gecikme ve hareketli ortalama) doğrusal olarak yansımasından kaynaklanmaktadır.
+    Ağaç tabanlı modeller eğitim kümesindeki yerel örüntülere aşırı uymuş ve bu trendi genelleyememiştir.
+
+    \item \textbf{72 saatlik ufukta model ayrışması:}
+    Ufuk uzadıkça belirsizlik artmakta ve tüm modellerin R\textsuperscript{2} değerleri düşmektedir.
+    vCPU 72\,s'de LR hâlâ 0{,}7728 ile güçlüdür; bellek 72\,s'de MLP ve LR yakın sonuçlar üretmektedir (0{,}3456 ve 0{,}3414).
+    Disk 72\,s'de ise yalnızca MLP pozitif kalmakta (0{,}2212), diğer tüm modeller negatif R\textsuperscript{2} üretmektedir.
+
+    \item \textbf{Ağaç modellerinin yetersiz genellemesi:}
+    RF, GBT, XGB, LightGBM ve CatBoost birden fazla senaryoda negatif R\textsuperscript{2} değerleri üretmiştir.
+    Bu bulgu, söz konusu modellerin 272 özellikli uzayda eğitim verilerine aşırı uyduğunu ve zaman serisi genellemesinde başarısız olduğunu göstermektedir.
+    Daha uzun eğitim seti veya daha güçlü düzenlileştirme ile bu açığın kapanabileceği değerlendirilmektedir.
+\end{enumerate}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.95\textwidth]{capacity_forecasts}
+    \caption{En iyi modelin (Doğrusal Regresyon) gerçek ve tahmin değerleri karşılaştırması — test kümesi.}
+    \label{fig:forecasts}
+\end{figure}
+
+\autoref{fig:forecasts}'te vCPU için gerçek ve tahmin serileri görselleştirilmektedir.
+LR modelinin yukarı yönlü trendi yakından takip ettiği ve ani sapmaları dışında tahminlerin gerçek değerlere oldukça yakın kaldığı gözlemlenmektedir.
+
+
+\section{SHAP Açıklanabilirlik Bulguları}
+\label{sec:bulgu-shap}
+
+Kapasite tahmin modellerinin özellik atıf değerleri (SHAP) analizi üç önemli bulguyu ortaya koymaktadır.
+
+\subsection{vCPU Tahmininde Özellik Önemleri}
+
+vCPU 24 saatlik tahmin modeli (LR) için SHAP analizi sonuçları \autoref{tab:shap-vcpu24}'de özetlenmekte, görsel beeswarm grafiği ise \autoref{fig:beeswarm-vcpu24}'de sunulmaktadır.
+
+\begin{table}[htbp]
+    \centering
+    \caption{vCPU 24\,s LR modeli için SHAP özellik önemleri (ilk 10 özellik, ortalama $|\phi_i|$)}
+    \label{tab:shap-vcpu24}
+    \begin{tabular}{rlr}
+        \textbf{Sıra} & \textbf{Özellik} & \textbf{Ortalama $|\phi_i|$} \\
+        \hline
+        1  & \texttt{vm\_count\_rmean\_24h}                        & 16\,163 \\
+        2  & \texttt{vm\_count\_rmean\_12h}                        &  6\,406 \\
+        3  & \texttt{vm\_count\_rmean\_6h}                         &  4\,398 \\
+        4  & \texttt{vm\_count\_rmean\_168h}                       &  3\,614 \\
+        5  & \texttt{resource\_exhausted\_count\_rsum\_72h}        &  2\,150 \\
+        6  & \texttt{total\_errors\_rsum\_72h}                     &  1\,800 \\
+        7  & \texttt{vcpu\_usage\_percent\_rmean\_24h}             &  1\,364 \\
+        8  & \texttt{vcpu\_usage\_percent\_rmean\_12h}             &  1\,167 \\
+        9  & \texttt{scheduler\_degradation\_count\_rsum\_72h}     &  1\,050 \\
+        10 & \texttt{timeout\_count\_rsum\_72h}                    &  1\,028 \\
+    \end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.88\textwidth]{shap_capacity_beeswarm_vcpu_usage_percent_24h}
+    \caption{vCPU 24\,s modeli için SHAP beeswarm grafiği — her gözlem için $\phi_i$ dağılımı ve özellik değeri renk kodlaması.}
+    \label{fig:beeswarm-vcpu24}
+\end{figure}
+
+İlk dört sırayı VM sayısının farklı pencere hareketli ortalamaları (\texttt{vm\_count\_rmean}) almaktadır; bu, vCPU tahmininin büyük ölçüde aktif sanal makine sayısıyla belirleneceğini teyit etmektedir.
+Ancak 5.\ sırada \texttt{resource\_exhausted\_count\_rsum\_72h} (log özelliği: 72\,saatlik kaynak tükenmesi log toplamı) ve 6.\ sırada \texttt{total\_errors\_rsum\_72h} (toplam hata log toplamı) yer almaktadır.
+Log tabanlı özellikler saf metrik özelliklerinden önce gelmekte; bu bulgu log--metrik korelasyonunun kapasite tahminine anlamlı katkı sağladığını nicel olarak göstermektedir.
+9.\ sıradaki \texttt{scheduler\_degradation\_count\_rsum\_72h} da bir erken uyarı log özelliğidir; Nova zamanlayıcı bozulmalarının vCPU baskısının öncülü olduğuna işaret etmektedir.
+
+\subsection{Bellek ve Disk Tahmininde Özellik Önemleri}
+
+Bellek 24\,s modelinde de VM sayısı öne çıkmaktadır (\texttt{vm\_count\_rmean\_24h}: 10\,871); ancak ikinci sırayı bir log özelliği almaktadır: \texttt{total\_errors\_rsum\_72h} (6\,659).
+Bağlantı havuzu uyarı loglarının (\texttt{connection\_pool\_warn\_count\_rsum\_72h}) da ilk 10'da yer alması, bellek baskısının servis düzeyindeki erken uyarı sinyalleriyle korelasyon içinde olduğunu ortaya koymaktadır.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.88\textwidth]{shap_capacity_beeswarm_memory_usage_percent_24h}
+    \caption{Bellek 24\,s modeli için SHAP beeswarm grafiği.}
+    \label{fig:beeswarm-mem24}
+\end{figure}
+
+Disk 24\,s modelinde ise özellik sıralaması belirgin biçimde farklılaşmaktadır: birinci sırayı \texttt{total\_errors\_rsum\_24h} (2\,111) almakta, ardından \texttt{total\_warning\_count\_rsum\_72h} (1\,544) ve \texttt{resource\_exhausted\_count\_rsum\_72h} (1\,506) gelmektedir.
+Disk tahmininde log özelliklerinin metrik özelliklerinden daha yüksek SHAP değerleri alması, disk kullanımının I/O hatası ve kaynak tükenmesi örüntüleriyle güçlü bir ilişki içinde olduğunu göstermektedir.
+
+Bu bulgular, log tabanlı özelliklerin basit bir gürültü değil, anlamlı tahmin sinyali taşıdığını ve \%19 oranında (\autoref{tab:shap-vcpu24}: ilk 10'da 4 log özelliği) SHAP sıralamasına katkı yaptığını nicel olarak ortaya koymaktadır.
+
+
+\section{Log Analizi ve Anomali Tespiti Bulguları}
+\label{sec:bulgu-log}
+
+Log işleme pipeline'ının dört aşamalı analizi (\autoref{sec:logpipeline}) test dönemi (Nisan--Haziran 2026) üzerinde uygulanmış, elde edilen çıktılar \autoref{fig:loganaliz}'de görselleştirilmektedir.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.90\textwidth]{log_analysis}
+    \caption{Test dönemi log analizi: trend değişimi, anomali sayısı ve erken uyarı sinyali dağılımı.}
+    \label{fig:loganaliz}
+\end{figure}
+
+Test döneminde gözlemlenen öne çıkan log bulguları şunlardır:
+
+\begin{maddelendir}[label=--]
+    \item \textbf{Erken uyarı sinyalleri:}
+    Yavaş yanıt (\texttt{slow\_response}) logları son 7 günlük pencerede 1\,285 kez kaydedilmiştir; geçmiş 15 incident analizine göre bu log tipi arızadan ortalama 68 saat önce \%287 artış göstermektedir.
+    Mevcut veriler bu örüntüyle örtüşmekte olup yüksek güven düzeyinde (\%100) aktif bir ön-arıza sinyali olarak değerlendirilmektedir.
+
+    \item \textbf{Erken uyarı hacmi:}
+    Bellek baskısı (\texttt{memory\_pressure}) logları 3\,096, bağlantı havuzu uyarıları 2\,046, zamanlayıcı bozulma logları ise 2\,575 kez gözlemlenmiştir.
+    Bu erken uyarı kategorilerinin hata kategorilerinden yaklaşık 50 kat daha yüksek hacimde olması, sistemin kritik arıza eşiğinden henüz uzakta ama belirgin baskı altında olduğuna işaret etmektedir.
+
+    \item \textbf{Cascade riski:}
+    2026-06-28 08:00 itibarıyla Nova, Neutron ve Keystone servislerinin eş zamanlı degradasyonu tespit edilmiş; bu örüntü cascade risk kanalı tarafından 1 saatlik bir çakışma penceresiyle işaretlenmiştir.
+
+    \item \textbf{Z-skor anomalileri:}
+    Kota aşımı loglarının z-skoru 4{,}5'e çıkmış (normal değerin 0{,}8 katı artış); disk I/O hatası z\,=\,3{,}6, ağ hatası z\,=\,2{,}8, DB bağlantı hatası ise z\,=\,2{,}6 olarak ölçülmüştür.
+    Tüm bu değerler $\sigma > 2{,}5$ eşiğini aşarak anomali olarak sınıflandırılmıştır.
+\end{maddelendir}
+
+
+\section{Öneri Motoru ve LLM Çıktıları}
+\label{sec:bulgu-oneri}
+
+Kural tabanlı motor ve LLM katmanı birlikte 9 öneri üretmiştir: 2 KRİTİK ve 7 UYARI düzeyinde.
+Kapasite durum özeti şöyledir: vCPU \%79{,}6 (eşik \%90{,}0, tahmini aşım tarihi: 2026-09-12, yaklaşık 74 gün), Bellek \%85{,}5 (eşik \%88{,}0, tahmini aşım tarihi: 2026-08-15, yaklaşık 46 gün), Disk \%80{,}0 (kararlı trend, aşım $>$180 gün).
+
+Öneri üretim kanalları ve üretilen uyarı dağılımı \autoref{tab:oneri-kanal}'de verilmektedir.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Kanal bazında öneri dağılımı — test kümesi son gözlemi (2026-06-30)}
+    \label{tab:oneri-kanal}
+    \begin{tabular}{llrl}
+        \textbf{Kanal} & \textbf{Kategori} & \textbf{Sayı} & \textbf{En Yüksek Önem} \\
+        \hline
+        Kapasite        & UYARI    & 2 & vCPU \%79{,}6 — eşik 74 gün \\
+        Log anomali     & KRİTİK/UYARI & 4 & Kota Aşımı z\,=\,4{,}5 \\
+        Ön-arıza örüntü & UYARI   & 1 & Yavaş Yanıt +287\% / 68\,s önce \\
+        Cascade riski   & KRİTİK  & 1 & 3 servis eş zamanlı (2026-06-28) \\
+        Dönemsel risk   & UYARI   & 1 & Yaz Stajı 2026 aktif \\
+    \end{tabular}
+\end{table}
+
+LLM katmanında Claude Sonnet (\texttt{claude-sonnet-4-6}) ve GPT-4o'ya iletilen zenginleştirilmiş istem; kapasite durumunu, log anomali özetini, SHAP özellik sıralamasını, ön-arıza örüntülerini ve cascade risk skorunu içermektedir.
+Her iki modelin yanıtları birleştirilerek tekil bir operasyonel rapor oluşturulmuştur.
+Bellek eşimine ilişkin üretilen kritik öneri aşağıdaki gibidir:
+
+\begin{quote}
+\textit{``[UYARI] KAPASİTE — Bellek Kullanımı — Tahmini Eşik Tarihi: 2026-08-15.
+Mevcut Bellek Kullanımı: \%85{,}5 (eşik: \%88{,}0).
+30 günlük medyan artış: +0{,}151\%/gün.
+Tahmini eşik tarihi: 2026-08-15 ($\approx$1{,}5 ay / $\approx$46 gün).
+En etkili SHAP özelliği: \texttt{vm\_count\_rmean\_24h}.
+Aksiyonlar: (1) Bellek sızıntısı şüpheli VM'leri ve servisleri inceleyin. (2) Nova memory\_mb\_used değerini Keystone proje kotalarıyla karşılaştırın. (3) Büyük bellek tahsisi yapan VM'leri daha az yoğun node'lara taşıyın.''}
+\end{quote}
+
+Bu çıktı, tahmin modeli sonuçlarını (eşik tarihi), SHAP açıklamasını (en etkili özellik) ve log analizini (erken uyarı korelasyonu) somut operasyonel aksiyonlarla birleştirerek tek bir karar destek raporu oluşturmaktadır.
+Bu yapı, CloudMon'un bir izleme aracı olmanın ötesine geçerek açıklanabilir ve eyleme dönüştürülebilir öneriler üreten bir operasyonel zekâ sistemi olduğunu göstermektedir.

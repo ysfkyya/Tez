@@ -30,15 +30,17 @@ PDFVIEWER = xdg-open
 # olduğu sürece make haklı olarak hiçbir şey yapmıyordu; bu da "derleyemedim"
 # izlenimi veriyordu.)
 all:
-	$(LATEXMK) -pdf -pdflatex="$(PDFLATEX)" $(MAIN).tex
+	$(LATEXMK) -f -pdf -pdflatex="$(PDFLATEX)" $(MAIN).tex; \
+	test -f $(MAIN).pdf
 
 # Kaynaklara dokunmadan zorla tam derleme. Şüpheli bir .aux/.bbl/.toc sonrası
 # ya da "gerçekten baştan derlensin" istendiğinde kullanılır.
 force:
-	$(LATEXMK) -g -pdf -pdflatex="$(PDFLATEX)" $(MAIN).tex
+	$(LATEXMK) -f -g -pdf -pdflatex="$(PDFLATEX)" $(MAIN).tex; \
+	test -f $(MAIN).pdf
 
 watch:
-	$(LATEXMK) -pdf -pdflatex="$(PDFLATEX)" -pvc $(MAIN).tex
+	$(LATEXMK) -f -pdf -pdflatex="$(PDFLATEX)" -pvc $(MAIN).tex
 
 clean:
 	$(LATEXMK) -c

@@ -1,39 +1,128 @@
-\chapter{Genel Bilgiler}
+\chapter{GENEL BİLGİLER}
+\label{ch:genelbilgiler}
 
-Bu bölümde tez çalışmasının kavramsal ve teknik altyapısını oluşturan konular ele alınmaktadır. İlk olarak Kubernetes ve konteyner tabanlı sistemlerin güvenlik gereksinimleri özetlenmiş, ardından anomali tespiti yaklaşımlarının temelleri sunulmuştur. Devamında ağ katmanı ve çalışma zamanı katmanı anomali tespiti çalışmaları ayrı ayrı incelenmiş ve bu çalışmaların veri toplama altyapısını oluşturan eBPF tabanlı gözlemlenebilirlik araçları tanıtılmıştır. Son olarak çok kaynaklı veri füzyonu yaklaşımları ile literatürdeki açık noktalar tartışılarak tezin konumlandığı boşluk ifade edilmiştir.
+Bu bölümde tez çalışmasının kavramsal altyapısını oluşturan konular ele alınmaktadır.
+Önce yapay zekâ destekli BT operasyonları (AIOps) kavramı ve bulut platformlarındaki kapasite yönetimi sorunları sunulmaktadır.
+Ardından log analizi ve anomali tespiti yöntemleri incelenmekte, makine öğrenmesi modelleri ile açıklanabilir yapay zekâ yaklaşımları tartışılmaktadır.
+Son olarak büyük dil modellerinin operasyonel zekayla entegrasyonu ve literatürdeki açık noktalar değerlendirilerek tezin konumlandığı alan belirlenmektedir.
 
-\section{Kubernetes ve Konteyner Güvenliği}
 
-Bulut bilişimin yaygınlaşmasıyla birlikte uygulamalar giderek daha fazla konteyner tabanlı ve mikroservis mimarisiyle geliştirilmekte, bu uygulamaların yönetimi için ise konteyner orkestrasyon platformlarından yararlanılmaktadır. Bu platformlar arasında Kubernetes, fiili standart haline gelmiş en yaygın kullanılan sistemdir. Kubernetes, mikroservislerin dağıtımını, ölçeklenmesini ve yaşam döngüsü yönetimini otomatikleştirerek bulut tabanlı altyapıların temel bileşeni konumuna gelmiştir \autocite{soldanibrogi2021}.
+\section{Yapay Zekâ Destekli BT Operasyonları (AIOps)}
 
-Ancak Kubernetes ortamlarının sahip olduğu dinamik yapı, güvenlik açısından geleneksel yaklaşımları zorlamaktadır. Konteynerlerin kısa ömürlü olması, iş yüklerinin sürekli olarak yeniden zamanlanması ve mikroservisler arasındaki yoğun ağ iletişimi, sınır (perimeter) tabanlı ve imza tabanlı geleneksel güvenlik araçlarının yetersiz kalmasına neden olmaktadır. Ayrıca bir saldırının farklı aşamaları (örneğin ağ keşfi, yatay hareket ve ayrıcalık yükseltme) sistemin farklı katmanlarında farklı izler bırakır; bu nedenle tek bir veri kaynağına odaklanan bir izleme sistemi saldırı zincirinin tamamını göremeyebilir. Bu durum, ağ trafiği ve çalışma zamanı davranışı gibi farklı katmanlardan elde edilen verilerin birlikte değerlendirildiği çok katmanlı güvenlik izleme yaklaşımlarını önemli bir araştırma alanı haline getirmiştir.
+BT sistemlerinin ölçeği büyüdükçe operasyonel verilerin hacmi (log, metrik, olay akışları) insan kapasitesinin çok üzerine çıkmaktadır.
+Bu gerçeklik, makine öğrenmesi ve büyük veri tekniklerini BT operasyonları süreçlerine entegre eden AIOps (Artificial Intelligence for IT Operations) yaklaşımını doğurmuştur \autocite{dang2019}.
 
-\section{Anomali Tespiti: Temel Kavramlar ve Yöntemler}
+Notaro ve arkadaşları, AIOps literatürünü kapsamlı biçimde inceleyerek başarısızlık yönetimi için kullanılan yöntemleri anomali tespiti, kök neden analizi ve olay korelasyonu başlıkları altında sınıflandırmıştır \autocite{notaro2021}.
+Bu sınıflandırmaya göre proaktif kapasite yönetimi, anomali tespitinin özel bir formu olarak değerlendirilebilir: kaynak kullanımının belirli bir eşiği aşmadan önce örüntüden sapması tespit edilerek önleyici aksiyon alınır.
 
-Anomali tespiti, veride beklenen davranıştan sapma gösteren örüntülerin belirlenmesi problemidir. Chandola ve arkadaşları anomali türlerini noktasal, bağlamsal ve kolektif anomaliler olarak sınıflandırmış; kullanılan yöntemleri ise istatistiksel, kümeleme tabanlı ve sınıflandırma tabanlı yaklaşımlar çerçevesinde ele almıştır \autocite{chandola2009}. Etiketli veri ihtiyacına göre anomali tespiti yöntemleri gözetimli, yarı gözetimli ve gözetimsiz olmak üzere üç grupta incelenebilir.
+AIOps'un başarısı büyük ölçüde veri kalitesine ve farklı kaynaklardan gelen sinyallerin etkin biçimde birleştirilmesine bağlıdır.
+Metrikler, kesintisiz sayısal sinyal sağlarken; loglar, hata türleri, uyarı desenleri ve servis sağlık durumu hakkında metriklerin içermediği bağlamsal bilgi sunar.
+Bu iki kaynağın korelasyonu, tek kaynaklı yaklaşımlara kıyasla daha erken ve daha kesin uyarı üretilmesine olanak tanımaktadır.
 
-Güvenlik ve saldırı tespiti senaryolarında etiketli saldırı verisinin elde edilmesi zor ve maliyetli olduğundan, yalnızca normal davranışı öğrenerek bu davranıştan sapan örnekleri işaretleyen gözetimsiz yaklaşımlar öne çıkmaktadır. Bu yaklaşımların başlıcaları arasında, rastgele bölümleme ile örneklerin izole edilme kolaylığına dayanan ve doğrusal zamanda çalışan Yalıtım Ormanı (Isolation Forest) \autocite{liu2008} ile veriyi tek sınıf etrafında sınırlayan Tek Sınıf Destek Vektör Makinesi (One-Class SVM) \autocite{scholkopf2001} yer almaktadır. Öte yandan derin öğrenme tabanlı anomali tespiti, özellikle otokodlayıcı (autoencoder) tabanlı yeniden kurma (reconstruction) yöntemleriyle yüksek boyutlu ve karmaşık verilerde etkili sonuçlar üretmektedir \autocite{pang2021}. Sistem loglarından anomali tespitinde ise DeepLog ile önerilen, log dizilerini LSTM tabanlı bir modelle öğrenen yaklaşım önemli bir dönüm noktası olmuştur \autocite{du2017}; bu alandaki güncel çalışmaların büyük bölümü gözetimsiz veya yarı gözetimli yöntemlere dayanmaktadır \autocite{landauer2023}.
 
-\section{Ağ Katmanında Anomali Tespiti}
+\section{Bulut Altyapılarında Kapasite Yönetimi}
 
-Kubernetes ortamlarında ağ katmanı gözlemlenebilirliği, mikroservisler arasındaki iletişimin analiz edilmesi açısından kritik öneme sahiptir. eBPF tabanlı araçlar sayesinde pod seviyesinde akış (flow) kayıtları, L3/L4 bağlantıları ve HTTP/DNS gibi L7 protokol metrikleri toplanabilmekte; Cilium ve onun gözlemlenebilirlik bileşeni Hubble bu amaçla yaygın olarak kullanılmaktadır. Bu akış verileri, klasik ağ saldırı tespiti veri kümelerinin ürettiği akış tabanlı özelliklerle yapısal olarak büyük benzerlik göstermektedir.
+Kapasite yönetimi, mevcut altyapının talepleri karşılamaya devam edip etmeyeceğini öngörme ve buna göre planlama yapma sürecidir.
+Bulut ortamlarında bu süreç; vCPU, bellek ve disk gibi temel kaynakların kullanım trendlerinin izlenmesini ve gelecekteki tüketimin tahmin edilmesini kapsamaktadır.
 
-Literatürde Kubernetes üzerinde ağ ve metrik tabanlı anomali tespiti üzerine çeşitli çalışmalar bulunmaktadır. Almaraz-Rivera, Kubernetes altyapısını izlemek için Prometheus, Kubeflow ve Chaos Mesh araçlarını birleştiren bir hat önermiş; Tek Sınıf SVM, Yalıtım Ormanı ve otokodlayıcıyı ağırlıklı oylama ile birleştirmiş ve Yalıtım Ormanı'nın Tek Sınıf SVM'ye göre daha yüksek doğruluk sağladığını raporlamıştır \autocite{almaraz2023}. Boukhtouta ve arkadaşları, mikroservisler arası bağımlılık grafını çıkararak Grafik Sinir Ağları (GNN) ile servis tiplerini profillemiş ve dağıtık ortamlardaki anormal davranışları tespit etmiştir \autocite{boukhtouta2022}. Chen ve arkadaşları ise servis düzeyinde uzam-zamansal ağ metriklerini modelleyen STCell-VAE yaklaşımını önermiş ve topoloji değişimlerine yeniden eğitim gerektirmeden uyum sağlayabilen bir yapı geliştirmiştir \autocite{chen2023}. Mikroservis tabanlı bulut uygulamalarında anomali tespiti ve kök neden analizi konusundaki kapsamlı tarama çalışması da bu alandaki yöntem çeşitliliğini ortaya koymaktadır \autocite{soldanibrogi2021}.
+Geleneksel yaklaşımlar iş yükü tahmininde ARIMA ve üstel düzeltme gibi istatistiksel zaman serisi yöntemlerine dayanmaktadır \autocite{calheiros2015}.
+Bu yöntemler durağan ve periyodik örüntülü verilerde başarılı olurken, staj dönemleri ve anlık yük artışları gibi düzensiz olayları içeren bulut iş yüklerinde yetersiz kalabilmektedir.
 
-\section{Çalışma Zamanı Katmanında Anomali Tespiti}
+Makine öğrenmesi yöntemleri bu sınırlılığı aşmak için önerilmiştir.
+Özellik mühendisliği yoluyla geçmiş pencere istatistikleri, gecikme değerleri ve takvim bilgileri (iş günü, saat) modele dahil edilerek zaman serisi tahmini bir regresyon problemine dönüştürülmektedir.
+Bu yaklaşımda her gözlem noktası, geçmiş zaman penceresinden türetilen özellik vektörüyle temsil edilmekte ve model bu vektörden gelecekteki kaynak kullanımını tahmin etmektedir.
 
-Ağ katmanının yanı sıra konteynerlerin çalışma zamanı davranışı da saldırı tespiti için zengin bir bilgi kaynağıdır. Konteyner içinde çalıştırılan süreçler, gerçekleştirilen sistem çağrıları (syscall), dosya erişimleri ve ağ bağlantıları, kötü niyetli davranışların tespitinde kullanılabilmektedir. Bu katmanda Falco ve Tetragon gibi eBPF tabanlı araçlar süreç yürütme, dosya erişimi ve dışarı bağlantı girişimi gibi olayları toplamaktadır.
+OpenStack tabanlı özel bulut altyapılarında Nova (işlem), Cinder (depolama), Neutron (ağ) ve Keystone (kimlik) bileşenleri, Prometheus/Thanos ile saatlik metrik akışı sağlayarak makine öğrenmesi destekli kapasite yönetiminin veri altyapısını oluşturmaktadır \autocite{openstack2024}.
 
-Sistem çağrısı tabanlı çalışmalar bu katmanın temelini oluşturmaktadır. El Khairi ve arkadaşları, konteyner sistem çağrılarını bağlamsal olarak graf tabanlı modelleyen gözetimsiz bir ana bilgisayar saldırı tespit sistemi önermiş ve container breakout saldırılarına odaklanan CB-DS veri kümesini yayınlamıştır \autocite{elkhairi2022}. Frasão ve arkadaşları, Sysdig aracılığıyla toplanan sistem çağrısı izleri üzerinde farklı makine öğrenmesi modellerini karşılaştırmış ve düşük ek yük avantajıyla konteyner ortamlarına uygunluğunu göstermiştir \autocite{frasao2024}. Chen ve arkadaşları, BiLSTM tabanlı bir varyasyonel otokodlayıcı ile gerçek zamanlı sistem çağrısı izlemesi gerçekleştirmiştir \autocite{chen2022}. Guo ve Pope, sistem çağrısı izlerini dinamik graflara dönüştürerek container escape olaylarını uzam-zamansal GNN ile tespit etmiştir \autocite{guopope2024}. Joraviya ve arkadaşları ise sistem çağrısı n-gram özellikleri üzerinde topluluk öğrenmesi kullanarak konteyner ortamlarında daha düşük yanlış alarm oranı elde etmiştir \autocite{joraviya2024}.
 
-\section{eBPF Tabanlı Gözlemlenebilirlik ve Güvenlik}
+\section{Log Analizi ve Anomali Tespiti}
 
-eBPF (extended Berkeley Packet Filter), işletim sistemi çekirdeği içinde güvenli bir şekilde program çalıştırılmasına olanak tanıyan bir teknolojidir. Bu yetenek sayesinde sistem çağrıları, ağ paketleri ve süreç olayları çekirdek seviyesinde ve uygulama koduna dokunulmadan gözlemlenebilmektedir. eBPF, bulut tabanlı ortamlarda ağ, gözlemlenebilirlik ve güvenlik alanlarında yeni nesil çözümlerin temelini oluşturmaktadır \autocite{soldani2023}.
+Log verileri, sistem olaylarının zaman damgalı metin kaydıdır.
+Ham loglardan kapasite yönetimine anlamlı girdi oluşturmak birkaç aşamalı bir işlemi gerektirir: ayrıştırma ve sınıflandırma, zamansal agregasyon, anomali tespiti ve ön-arıza örüntü çıkarımı.
 
-Güvenlik izleme amacıyla geliştirilen eBPF tabanlı araçlar arasında KubeArmor, Falco, Tetragon ve Tracee öne çıkmaktadır; bu araçların çekirdek kancaları, getirdikleri ek yük ve zorunlu kıldıkları kaynaklar açısından karşılaştırmalı bir analizi literatürde sunulmuştur \autocite{jin2025}. Bu tez kapsamında ağ telemetrisi için Cilium/Hubble, çalışma zamanı olayları için ise Tetragon araçları benimsenmiştir. Cilium/Hubble, pod seviyesinde akış kayıtları ve L7 protokol metrikleri sağlarken; Tetragon, süreç yürütme, dosya erişimi ve ağ bağlantısı gibi çalışma zamanı olaylarını Kubernetes pod kimliğiyle ilişkilendirerek raporlamaktadır. Her iki araç da aynı eBPF altyapısını kullanması sayesinde tutarlı ve düşük ek yüklü bir telemetri hattı kurulmasına olanak tanımaktadır.
+He ve arkadaşları, log ayrıştırma algoritmalarını kapsamlı biçimde değerlendirerek Drain, Spell ve AEL gibi yöntemlerin gerçek dünya log verisi üzerindeki etkinliğini karşılaştırmıştır \autocite{he2016}.
+Log analizi için otomasyon yaklaşımlarını inceleyen daha kapsamlı bir tarama çalışması, ayrıştırma, kümeleme, sınıflandırma ve anomali tespiti adımlarını birleştiren bütünleşik pipeline yaklaşımlarının etkinliğini ortaya koymaktadır \autocite{he2021}.
 
-\section{Çok Kaynaklı Veri Füzyonu ve Literatürdeki Boşluk}
+Anomali tespiti açısından Chandola ve arkadaşları, noktasal, bağlamsal ve kolektif anomaliler arasındaki ayrımı tanımlayarak istatistiksel, kümeleme tabanlı ve sınıflandırma tabanlı yöntemleri sistematik biçimde sınıflandırmıştır \autocite{chandola2009}.
+Derin öğrenme tabanlı yaklaşımlar ise özellikle yüksek boyutlu ve yapılandırılmamış veriler için güçlü alternatifler sunmaktadır \autocite{pang2021}.
 
-Farklı güvenlik veri kaynaklarının birleştirilmesi, tek başına hiçbir katmanın göremediği saldırı örüntülerinin yakalanması açısından önemlidir. Literatürde ağ tabanlı ve ana bilgisayar tabanlı tespit sistemlerini birleştiren hibrit yaklaşımlar önerilmiştir \autocite{elmaaradi2019}. Güncel çalışmalar, trafik, log ve ana bilgisayar metriklerini çok modlu öğrenmeyle birleştirerek tespit performansını artırmayı hedeflemektedir \autocite{aly2025}.
+Log dizisi anomali tespitinde önemli bir dönüm noktası olan DeepLog, sistem loglarını LSTM modeli ile modelleyerek normal log dizilerinden sapmaları tespit etmekte ve tanılamaktadır \autocite{du2017}.
+Log verisi için derin öğrenme yaklaşımlarını derleyen güncel bir tarama çalışması, denetimsiz ve yarı denetimli yöntemlerin üretim ortamlarındaki kararsız log formatlarına karşı daha dayanıklı olduğunu göstermektedir \autocite{landauer2023}.
 
-Ancak bu çalışmaların büyük bölümü veri kaynaklarını karar veya uyarı (alert) seviyesinde birleştirmekte; ağ telemetrisi ile çalışma zamanı olaylarını ortak bir özellik uzayında ve tek bir öğrenme modeliyle birleştiren (feature-level fusion) yaklaşımlar sınırlı kalmaktadır. Özellikle Kubernetes ortamında Hubble benzeri ağ akış verileri ile Tetragon/Falco benzeri çalışma zamanı olaylarını aynı kümede, senkron zaman damgalarıyla eşleştiren ve her ikisini birlikte öğrenen bir yaklaşıma literatürde rastlanmamıştır. Ek olarak, bu iki katmanı birlikte barındıran halka açık bir veri kümesi de bulunmamaktadır; mevcut veri kümeleri ya yalnızca ağ akışlarını ya da yalnızca sistem çağrısı izlerini içermektedir. Bu durum, çok katmanlı veri kaynaklarının ortak öğrenilmesi ve birleşik bir anomali skorunun üretilmesi konusunda doldurulmayı bekleyen bir araştırma boşluğuna işaret etmektedir. Bu tez, bu boşluğu hedefleyerek ağ telemetrisi ile çalışma zamanı olaylarını birlikte değerlendiren ve her pod için birleşik bir anomali skoru üreten çok katmanlı bir yaklaşım önermeyi amaçlamaktadır.
+Bulut platformlarında loglar yalnızca hata bildirmez; arızadan saatler önce ortaya çıkan \textit{yavaş yanıt}, \textit{bellek baskısı} ve \textit{bağlantı havuzu uyarısı} gibi erken uyarı sinyalleri de içerir.
+Bu sinyallerin zamansal örüntülerinin çıkarılması ve metrik verisiyle korelasyonu, proaktif izlemenin temel katkısını oluşturmaktadır.
+
+
+\section{Makine Öğrenmesi ile Zaman Serisi Regresyonu}
+
+Kapasite tahmini bu çalışmada bir regresyon problemi olarak ele alınmaktadır: geçmiş özellik vektörü verildiğinde $h$ saat sonraki kaynak kullanım oranı $\hat{y}$ tahmin edilmektedir.
+
+\textbf{Doğrusal Regresyon (LR):}
+Özellik vektörünün doğrusal kombinasyonuyla hedef değişkeni modelleyen temel yöntemdir.
+Yorumlanabilirliği yüksektir; ancak doğrusal olmayan ilişkileri yakalayamaz.
+Bu çalışmada StandardScaler ile normalizasyon uygulanmaktadır.
+
+\textbf{Rastgele Orman (RF):}
+Breiman tarafından önerilen topluluk öğrenmesi yöntemidir \autocite{breiman2001}.
+Birbirinden bağımsız karar ağaçlarının tahminlerini ortalaması alarak oluşturur; aşırı öğrenmeye karşı dayanıklıdır ve özellik önem skoru hesaplamaya doğrudan olanak tanır.
+
+\textbf{Gradyan Artırmalı Ağaçlar (GBT):}
+Friedman tarafından geliştirilen ve artık (residual) tabanlı sıralı ağaç inşa eden yöntemdir \autocite{friedman2001}.
+XGBoost \autocite{chen2016}, LightGBM \autocite{ke2017} ve CatBoost \autocite{prokhorenkova2018} bu temel yöntemin hesaplama verimliliğini ve doğruluğunu artıran modern uygulamalarıdır.
+
+\textbf{Çok Katmanlı Algılayıcı (MLP):}
+İleri beslemeli yapay sinir ağıdır.
+Doğrusal olmayan ilişkileri yakalama kapasitesi yüksektir; ancak hiperparametre ayarı ve eğitim süresi diğer yöntemlere kıyasla daha fazla dikkat gerektirir.
+Bu çalışmada StandardScaler ile normalizasyon uygulanmaktadır.
+
+Model performansı dört metrikle değerlendirilmektedir: MAE (Ortalama Mutlak Hata), RMSE (Kök Ortalama Kare Hata), R\textsuperscript{2} (Belirleme Katsayısı) ve MAPE (Ortalama Mutlak Yüzdelik Hata).
+Bu metrikler hem mutlak hata büyüklüğünü (MAE, RMSE) hem de varyansın ne kadarının model tarafından açıklandığını (R\textsuperscript{2}) ve yüzdesel sapmayı (MAPE) birlikte değerlendirmeye olanak tanımaktadır.
+
+
+\section{Açıklanabilir Yapay Zekâ ve SHAP}
+
+Makine öğrenmesi modellerinin karar destek süreçlerinde kullanılabilmesi için operatörlerin model çıktılarını anlayabilmesi kritik önem taşımaktadır.
+Açıklanabilir yapay zekâ (XAI), kara kutu modellerin tahminlerini yorumlanabilir kılmayı hedeflemektedir.
+
+SHAP (SHapley Additive exPlanations), oyun teorisindeki Shapley değerlerinden türetilen tutarlı bir özellik atıf yöntemidir \autocite{lundberg2017}.
+Her özelliğin modelin tahmine katkısı, o özelliğin dahil edilip edilmediği tüm alt kümelerin kombinasyonları üzerinden hesaplanmakta; bu sayede hem yerel (tek tahmin) hem de global (tüm veri seti) açıklamalar üretilebilmektedir.
+
+Ağaç tabanlı modeller için önerilen TreeSHAP algoritması, polinom zamanlı naif SHAP hesabını üstel karmaşıklıktan polinom karmaşıklığa indirerek büyük ölçekli modellerde uygulanabilir kılmaktadır \autocite{lundberg2020}.
+Doğrusal modeller için ise LinearExplainer, katsayıların beklenti değerinden sapmasını doğrudan hesaplar; model-agnostik Kernel SHAP ise MLP gibi kara kutu modellerle kullanılır.
+
+Bu çalışmada SHAP analizi üç amaçla kullanılmaktadır:
+(i) hangi metrik ve log özelliklerinin kapasite tahminini en çok etkilediğinin belirlenmesi,
+(ii) log sayımlarının metrik özelliklerle rekabet eden tahmin katkısının ölçülmesi ve
+(iii) operatörlere üretilen önerilerin dayandığı kanıtların aktarılması.
+
+
+\section{Büyük Dil Modelleri ve Operasyonel Zekâ}
+
+Büyük dil modelleri (LLM), milyarlarca parametreli dönüştürücü (transformer) mimarisiyle eğitilen ve doğal dil anlama ile üretme kapasitesine sahip modellerdir.
+GPT-3 \autocite{brown2020} ile birlikte bağlam içi öğrenme (in-context learning) kapasitesi gösterilmiş; GPT-4 \autocite{openai2023} ve Claude \autocite{anthropic2024} ile bu kapasite üretim ortamlarında kullanılabilir düzeye ulaşmıştır.
+
+IT operasyonları alanında LLM'ler, yapılandırılmış sistem verilerini (metrik, log, uyarı) doğal dil önerilerine dönüştürme rolüyle kullanılmaktadır.
+Bu yaklaşımın başarısı büyük ölçüde modele sağlanan bağlamın kalitesine bağlıdır: yalnızca ham metrik değerlerinin iletilmesi yerine, SHAP özellik önem sıralaması, log anomali sinyalleri, tahmin ufku ve servis sağlık durumu gibi bağlamsal bilgilerin eklenmesi daha spesifik ve uygulanabilir öneriler üretilmesini sağlamaktadır.
+
+Bu çalışmada Claude Sonnet ve GPT-4o modelleri paralel olarak kullanılmakta; her iki modelin yanıtı tek bir operasyonel raporda birleştirilmektedir.
+Modellere iletilen istem (prompt), kapasite durumu, log özeti, SHAP sıralaması, ön-arıza örüntüleri ve cascade risk skoru içeren yapılandırılmış bir bağlam bloğunu kapsamaktadır.
+
+
+\section{Literatürdeki Boşluk ve Tezin Konumlandığı Alan}
+
+İncelenen çalışmalar değerlendirildiğinde şu eksiklikler göze çarpmaktadır:
+
+\begin{maddelendir}[label=\arabic*.]
+    \item Mevcut AIOps çalışmalarının büyük bölümü log analizi ya da metrik bazlı kapasite tahminini ayrı ayrı ele almaktadır.
+    Her iki veri kaynağını tek bir özellik uzayında birleştiren ve korelasyonun tahmini nasıl iyileştirdiğini nicel olarak ölçen uygulamalı çalışmalar sınırlı kalmaktadır.
+
+    \item Ön-arıza örüntü çıkarımı (pre-failure pattern mining) kapasite tahminiyle birlikte ele alınmamaktadır.
+    Geçmiş incident'lerin öncesindeki log imzalarının sistematik biçimde çıkarılıp gelecekteki uyarı üretimine katkı sağlaması literatürde yeterince araştırılmamıştır.
+
+    \item SHAP analizinin kapasite yönetimi bağlamında uygulanması ve log özelliklerinin tahmin katkısının metrik özellikleriyle karşılaştırılması spesifik olarak ele alınmamıştır.
+
+    \item LLM entegrasyonu genellikle log-to-text veya alert-to-text dönüşümlerine odaklanmaktadır.
+    Metrik, log, SHAP ve cascade bilgisini birleştiren zenginleştirilmiş bağlam ile proaktif öneri üretimi yeterince araştırılmamıştır.
+\end{maddelendir}
+
+Bu tez, söz konusu boşlukları hedef alarak OpenStack tabanlı gerçek bir bulut altyapısı üzerinde log--metrik korelasyonuna dayalı, açıklanabilir ve LLM destekli proaktif bir kapasite yönetim sistemi geliştirmektedir.

@@ -36,7 +36,16 @@ python main.py
 
 `kou-fbe-latex-tez/` dizini, KOU Fen Bilimleri Enstitüsü formatında LaTeX tez şablonunu içerir.
 
+**Gereksinim (TeX Live):**
 ```bash
-cd kou-fbe-latex-tez
-make          # veya: latexmk -pdf tez.tex
+sudo apt-get install -y texlive-full biber
 ```
+
+**Derlemek için:**
+```bash
+make tez          # kök dizinden
+# veya
+cd kou-fbe-latex-tez && make
+```
+
+`make tez` komutu tüm bölümleri (`giris.tex`, `genelbilgiler.tex`, `malzemeveyontem.tex`, `bulgular.tex`, `sonuclar.tex`) birleştirip `tez.pdf` üretir.

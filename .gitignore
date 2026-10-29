@@ -15,3 +15,18 @@ catboost_info/
 # Sistem
 .DS_Store
 *.swp
+
+# LaTeX derleme çıktıları
+kou-fbe-latex-tez/*.aux
+kou-fbe-latex-tez/*.bbl
+kou-fbe-latex-tez/*.bcf
+kou-fbe-latex-tez/*.blg
+kou-fbe-latex-tez/*.fdb_latexmk
+kou-fbe-latex-tez/*.fls
+kou-fbe-latex-tez/*.lof
+kou-fbe-latex-tez/*.log
+kou-fbe-latex-tez/*.lot
+kou-fbe-latex-tez/*.out
+kou-fbe-latex-tez/*.run.xml
+kou-fbe-latex-tez/*.toc
+kou-fbe-latex-tez/tez.pdf
