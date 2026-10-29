@@ -1,0 +1,284 @@
+\chapter{Malzeme ve Yöntem}
+
+Bu bölümde tez kapsamında kurulan deneysel ortam, geliştirilen veri toplama ve özellik çıkarım hattı ile değerlendirme yöntemi tanıtılmaktadır. Öncelikle araştırmanın genel tasarımı ve aşamaları özetlenmekte, ardından kullanılan Kubernetes test ortamı ve telemetri yığını açıklanmaktadır. Devamında etiketli veri toplama yordamı, saldırı senaryolarının tasarımı, etiketleme yöntemi ve özellik şeması ayrıntılı olarak verilmektedir. Son olarak veri setinin kabul ölçütleri, değerlendirme yöntemi ve yöntemin ölçülmüş sınırlılıkları ele alınmaktadır.
+
+\section{Araştırma Tasarımı ve Genel Bakış}
+
+Bu çalışma, Kubernetes ortamlarında ağ katmanı ile çalışma zamanı katmanının ortak bir özellik uzayında birleştirilmesine dayanan çok katmanlı bir anomali tespiti yaklaşımını araştırmaktadır. Yaklaşımın genel akışı \autoref{sek:genelmimari} ile verilmiştir. Kümede çalışan iş yüklerinden eBPF tabanlı iki telemetri kaynağı beslenmektedir: ağ akışları Hubble, çalışma zamanı olayları ise Tetragon aracılığıyla toplanmaktadır. Her iki kaynak da pod kimliği ve zaman damgası taşıdığından, kayıtlar ortak bir zaman ekseninde eşleştirilebilmektedir. Toplanan ham kayıtlar sabit uzunlukta zaman pencerelerine bölünmekte ve her pencere ile pod çifti için bir özellik vektörü üretilmektedir. Özellik vektörleri, tek katmanlı temel modellerin eğitilmesinde ve bu katmanların özellik seviyesinde birleştirildiği füzyon modelinin eğitilmesinde kullanılmaktadır.
+
+\begin{figure}[htbp]
+	\centering
+	\begin{tikzpicture}[
+		font=\small,
+		kutu/.style={draw, rounded corners=2pt, align=center, inner sep=5pt, minimum height=1cm},
+		ok/.style={->, thick}
+	]
+		\node[kutu, fill=gray!8] (kume) at (0,0) {Kubernetes Kümesi\\{\footnotesize (demo iş yükleri + saldırı senaryoları)}};
+		\node[kutu] (hubble) at (-3.6,-1.9) {Hubble\\{\footnotesize ağ akışları (L3/L4)}};
+		\node[kutu] (tetragon) at (3.6,-1.9) {Tetragon\\{\footnotesize çalışma zamanı olayları}};
+		\node[kutu] (toplama) at (0,-3.6) {Veri Toplama Hattı\\{\footnotesize Parquet parçaları $\rightarrow$ tek veri seti}};
+		\node[kutu] (ozellik) at (0,-5.3) {Pencereleme ve Özellik Çıkarımı\\{\footnotesize pencere $\times$ pod başına özellik vektörü}};
+		\node[kutu] (katman) at (-3.6,-7.0) {Ağ Katmanı\\{\footnotesize anomali skoru $s_{ag}$}};
+		\node[kutu] (katman2) at (3.6,-7.0) {Çalışma Zamanı Katmanı\\{\footnotesize anomali skoru $s_{cz}$}};
+		\node[kutu, fill=gray!8] (fuz) at (0,-8.7) {Füzyon\\{\footnotesize özellik seviyesi ve skor seviyesi}};
+		\node[kutu] (deger) at (0,-10.4) {Değerlendirme\\{\footnotesize tek katman temelleri ile karşılaştırma}};
+
+		\draw[ok] (kume) -- (hubble);
+		\draw[ok] (kume) -- (tetragon);
+		\draw[ok] (hubble) -- (toplama);
+		\draw[ok] (tetragon) -- (toplama);
+		\draw[ok] (toplama) -- (ozellik);
+		\draw[ok] (ozellik) -- (katman);
+		\draw[ok] (ozellik) -- (katman2);
+		\draw[ok] (katman) -- (fuz);
+		\draw[ok] (katman2) -- (fuz);
+		\draw[ok] (fuz) -- (deger);
+	\end{tikzpicture}
+	\caption{Önerilen çok katmanlı anomali tespiti yaklaşımının genel mimarisi}
+	\label{sek:genelmimari}
+\end{figure}
+
+Araştırma tasarımı dört aşamadan oluşmaktadır. Birinci aşamada küme üzerinde etiketli veri toplama hattı kurulmuş ve kontrollü saldırı senaryoları ile normal trafik aynı zaman ekseninde kaydedilmiştir. İkinci aşamada ham kayıtlar zaman pencerelerine bölünerek özellik vektörleri üretilmiş ve veri setinin kabul ölçütlerini karşıladığı doğrulanmıştır. Üçüncü aşamada her katman için ayrı temel modeller eğitilerek katman bazlı anomali skorları elde edilmektedir. Dördüncü aşamada özellik seviyesinde ve skor seviyesinde iki füzyon yaklaşımı karşılaştırılmaktadır.
+
+Veri stratejisi bakımından hibrit bir yaklaşım benimsenmiştir. Katmanların ayrı ayrı doğrulanmasında literatürdeki akış tabanlı ve sistem çağrısı tabanlı hazır veri kümelerinden yararlanılmakta; çok katmanlı füzyonun değerlendirilmesi ise küme üzerinde üretilen senkron zaman damgalı veri ile yapılmaktadır. Bu ayrımın nedeni, ağ akışları ile çalışma zamanı olaylarını aynı ortamda ve eşleştirilebilir zaman damgalarıyla içeren halka açık bir veri kümesinin bulunmamasıdır.
+
+\section{Kubernetes Test Ortamı}
+
+Deneysel çalışmalar, OpenStack Magnum üzerinde barındırılan ve Cilium konteyner ağ arayüzü ile yapılandırılmış tek düğümlü bir Kubernetes kümesi üzerinde yürütülmüştür. Kümenin bileşenleri ve sürümleri \autoref{tab:ortam} ile verilmiştir. Tüm bileşenler, aynı yığının taze bir kümede yeniden üretilebilmesi amacıyla sürüm sabitlemesi yapılarak ve betiklenerek (IaC) kurulmuştur.
+
+\begin{table}[htbp]
+	\centering
+	\caption{Deneysel ortamın bileşenleri ve sürümleri}
+	\label{tab:ortam}
+	\begin{tabular}{lll}
+		\textbf{Bileşen} & \textbf{Sürüm} & \textbf{Görev} \\
+		\hline
+		Kubernetes & 1.34.0 & Konteyner orkestrasyonu \\
+		Container Runtime & containerd & Konteyner çalıştırma ortamı \\
+		Cilium & 1.15.3 & Konteyner ağ arayüzü (CNI), eBPF \\
+		Hubble Relay / UI & 1.15.3 & Ağ akış telemetrisi arayüzü \\
+		Tetragon & 1.7.1 & eBPF tabanlı çalışma zamanı gözlemlenebilirliği \\
+		kube-prometheus-stack & 92.3.0 & Metrik toplama ve görselleştirme \\
+		Online Boutique & 0.10.7 & Demo mikroservis uygulaması \\
+		\hline
+	\end{tabular}
+\end{table}
+
+Küme, bir denetim düzlemi ve bir işçi düğümünden oluşmaktadır. Cilium hem ağ arayüzü hem de gözlemlenebilirlik katmanı olarak görev yapmakta; Hubble Relay ve Hubble UI bileşenleri eklenerek akış verisinin küme dışına, yerel toplayıcıya aktarılabilmesi sağlanmıştır. Tetragon, çekirdek seviyesinde süreç yürütme, süreç sonlanma ve çekirdek yoklama (kprobe) olaylarını Kubernetes pod kimliğiyle ilişkilendirerek raporlamaktadır.
+
+\subsection{Demo Uygulaması ve Meşru İş Yükü}
+
+Normal davranışın temsili için Google tarafından yayımlanan Online Boutique mikroservis uygulaması kullanılmıştır. Uygulama on üç servisten oluşmakta ve kendi yük üreteci (loadgenerator) bileşeni sayesinde kesintisiz servisler arası trafik üretmektedir. Bu yapı, mikroservis mimarisinin doğasında bulunan yoğun doğu-batı trafiğini ve çok sayıda kısa ömürlü bağlantıyı doğal olarak ürettiği için ağ katmanı özelliklerinin gerçekçi bir dağılım göstermesini sağlamaktadır.
+
+Ön ölçümler, demo uygulamasının çalışma zamanı katmanında neredeyse hiç iz bırakmadığını göstermiştir: uygulama servisleri normal çalışma sırasında süreç doğurmamakta, dolayısıyla normal sınıfına ait pencerelerde süreç yürütme sayısı sıfır kalmaktadır. Bu durum, tek bir özelliğin (herhangi bir çalışma zamanı olayının varlığı) tek başına normal ile anormal sınıfları ayırmasına yol açmakta ve çok katmanlı füzyonun öğrenecek bir normal çalışma zamanı davranışı bulamamasına neden olmaktadır. Bu sorunu gidermek amacıyla kümeye, gerçek ortamlarda meşru çalışma zamanı aktivitesinin doğal kaynağı olan periyodik bakım işlerini taklit eden sürekli bir bakım iş yükü eklenmiştir. Bu iş yükü kısa ömürlü süreçleri küme hâlinde (dört süreç ve ardından otuz saniyelik sessizlik) çalıştırarak çalışma zamanı özelliklerinin sabit değil değişken bir dağılım göstermesini sağlamaktadır. İş yükü ayrıcalıksız kullanıcı (uid 1000) olarak çalıştırılmakta ve hassas dosyalara erişmemektedir; böylece normal sınıfına yanlışlıkla güvenlik açısından hassas olayların sızması engellenmektedir.
+
+\section{Telemetri Yığını}
+
+\subsection{Ağ Telemetrisi: Cilium ve Hubble}
+
+Ağ katmanı verisi, Cilium'un gözlemlenebilirlik bileşeni olan Hubble üzerinden toplanmıştır. Hubble, eBPF programları aracılığıyla çekirdek seviyesinde akış kayıtları üretmekte ve her akışa kaynak ile hedef pod kimliğini, ad alanını, IP adreslerini, taşıma katmanı protokolünü ve port numaralarını eklemektedir. Bu sayede akışlar, uygulama kodunda hiçbir değişiklik yapılmaksızın pod düzeyinde ilişkilendirilebilmektedir. Çalışma kapsamında hem küme içi servisler arası trafik hem de küme dışına yönelen bağlantılar kaydedilmiştir.
+
+Hubble'ın katman yedi görünürlüğü, Cilium'da ayrı bir yapılandırma gerektirmesi ve bu yapılandırmanın çalışma zamanı davranışını etkilemesi nedeniyle kapsam dışında bırakılmıştır; bu kararın gerekçesi ve ölçümü \autoref{bol:sınırlılık}'da ayrıntılı olarak tartışılmaktadır.
+
+\subsection{Çalışma Zamanı Olayları: Tetragon}
+
+Çalışma zamanı katmanı verisi Tetragon aracılığıyla toplanmıştır. Tetragon, çekirdek yoklamaları (kprobe) ve Linux güvenlik modülü (LSM) kancaları üzerinden süreç yürütme, süreç sonlanma ve dosya erişimi gibi olayları izlemekte; her olayı ilgili pod, ad alanı ve ikili dosya (binary) bilgisiyle birlikte raporlamaktadır. Çalışma kapsamında iki özel izleme politikası tanımlanmıştır: dışarı yönelen TCP bağlantı girişimlerini izleyen bir politika (tcp\_connect) ve hassas dosya yollarına erişimi izleyen bir politika (security\_file\_open). Her iki politika da küme genelinde etkinleştirilmiş olup belirli bir pod seçicisi ile sınırlandırılmamıştır.
+
+\subsection{İzleme ve Metrik Altyapısı}
+
+Kümede Prometheus ve Grafana tabanlı kube-prometheus-stack yığını kurulmuştur. Tetragon, ürettiği olayların sayısal özetlerini Prometheus biçiminde yayımlamakta ve bu metrikler Grafana üzerinden izlenmektedir. Bu yapı, veri toplama koşuları sırasında telemetri hattının sağlığının doğrulanmasında kullanılmaktadır. İzleme yığınının kendisi ayrı bir ad alanında çalıştığı için veri setine dâhil edilmemiş, özellik çıkarımı yalnızca demo ad alanı ile sınırlandırılmıştır.
+
+\section{Veri Toplama Hattı}
+
+\subsection{Toplayıcı Bileşenleri}
+
+Veri toplama hattı, iki bağımsız toplayıcı bileşenden oluşmaktadır. Hubble toplayıcısı, Hubble Relay'in gRPC arayüzüne bağlanarak akış kayıtlarını sürekli bir akış (stream) hâlinde almakta ve düzleştirilmiş kayıtlar üretmektedir. Tetragon toplayıcısı ise her Tetragon düğüm ajanının standart çıktısını okuyarak JSON biçimindeki olayları ayrıştırmakta ve aynı düzleştirme yaklaşımıyla kayıt üretmektedir. Her iki toplayıcı da çıktısını Parquet biçiminde yazmaktadır.
+
+Toplayıcılar, uzun süreli koşularda veri kaybını önleyecek biçimde tasarlanmıştır. Kayıtlar belirli bir aralıkla (varsayılan olarak altmış saniye) ayrı Parquet parçaları hâlinde diske yazılmakta, koşu sonunda bu parçalar tek bir dosyada birleştirilmektedir. Bu yaklaşımın iki gerekçesi vardır: süreç beklenmedik biçimde sonlanırsa o ana kadar toplanan verinin korunması ve bellekte biriken kayıt sayısının koşu süresinden bağımsız olarak sınırlı tutulması.
+
+\subsection{Toplama Yordamı}
+
+Etiketli veri toplama koşusu üç ardışık evreden oluşmaktadır ve \autoref{tab:toplama} ile özetlenmiştir. Koşunun başlangıcında toplayıcılar başlatılmakta ve ilk evrede yalnızca normal trafik kaydedilmektedir. İkinci evrede saldırı senaryoları sırayla ve aralarında boşluk bırakılmadan çalıştırılmakta, her senaryonun başlangıç ve bitiş zaman damgası kaydedilmektedir. Üçüncü evrede saldırılar sona erdikten sonra sistemin normale dönüş davranışını da içerecek biçimde toplama bir süre daha sürdürülmektedir.
+
+\begin{table}[htbp]
+	\centering
+	\caption{Etiketli veri toplama koşusunun evreleri ve süreleri}
+	\label{tab:toplama}
+	\begin{tabular}{lll}
+		\textbf{Evre} & \textbf{Süre} & \textbf{İçerik} \\
+		\hline
+		Normal baseline & 25 dakika & Yalnızca meşru iş yükü trafiği \\
+		Saldırı fazı & 6 senaryo $\times$ 6 dakika & Sıralı, aralarda boşluk yok \\
+		Kuyruk & 4 dakika & Saldırı sonrası normale dönüş \\
+		Toplam & 65 dakika & \\
+		\hline
+	\end{tabular}
+\end{table}
+
+Saldırı senaryolarının süresi, etiketleme yöntemiyle doğrudan ilişkilidir. Bir senaryonun veri setinde yeterli sayıda pencere üretebilmesi için süresinin pencere uzunluğunun anlamlı bir katı olması gerekmektedir; bu ilişki \autoref{bol:ozellik}'da pencere boyutu seçimiyle birlikte ele alınmaktadır. Toplam koşu süresi, saldırı fazının toplayıcı ömrünü aşmamasını güvence altına alacak biçimde betik düzeyinde denetlenmektedir.
+
+\section{Saldırı Senaryoları ve Etiketleme}
+
+\subsection{Senaryo Tasarımı}
+
+Veri setinde hem ağ hem de çalışma zamanı katmanına iz bırakan saldırı davranışlarının temsil edilmesi amaçlanmıştır. Bu doğrultuda üçü ağ, üçü çalışma zamanı katmanında olmak üzere altı senaryo tasarlanmıştır ve bunlar \autoref{tab:senaryolar} ile verilmiştir.
+
+\begin{table}[htbp]
+	\centering
+	\caption{Veri setinde kullanılan saldırı senaryoları}
+	\label{tab:senaryolar}
+	\begin{tabular}{llp{6.4cm}}
+		\textbf{Senaryo} & \textbf{Katman} & \textbf{Davranış} \\
+		\hline
+		port-scan & Ağ & Servise çok sayıda farklı port üzerinden bağlantı denemesi (keşif) \\
+		dns-exfil & Ağ & Sıra dışı alt alan adlarına yönelik yoğun DNS sorguları \\
+		outbound-c2 & Ağ & Küme dışındaki bir adrese yönelen periyodik bağlantı girişimi \\
+		crypto-mining & Çalışma zamanı & Sürekli işlemci tüketimi ve eşzamanlı havuz bağlantısı \\
+		unexpected-binary & Çalışma zamanı & Uygulamaya ait olmayan ikili dosyaların çalıştırılması \\
+		sensitive-file-access & Çalışma zamanı & Servis hesabı belirteci ve hassas dosya yollarına erişim \\
+		\hline
+	\end{tabular}
+\end{table}
+
+Senaryoların uygulanmasında iki farklı çalıştırma kipi kullanılmaktadır. Beş senaryo, hâlihazırda çalışan meşru bir servis pod'unun içinde komut yürütme yoluyla çalıştırılmaktadır. Bu tercihin nedeni, normal ve saldırı pencerelerinin aynı pod ve aynı konteyner imajından gelmesini sağlamaktır; aksi durumda sınıflandırıcı davranışı öğrenmek yerine konteyner imajını ayırt eden bir kısayol öğrenebilir. Saldırı barındırabilen servisler, konteyner imajında kabuk bulunması koşuluna göre belirlenmiştir; dağıtım imajı yalnızca ikili dosya içeren servisler (distroless) bu amaçla kullanılamamaktadır. Hassas dosya erişimi senaryosu ise bu kipin bir kısıtı nedeniyle ayrı bir pod içinde, senaryonun kendisi pod'un ana süreci olarak çalıştırılmaktadır; kısıtın ölçümü \autoref{bol:sınırlılık}'da verilmektedir.
+
+\subsection{Etiketleme Yöntemi}
+
+Her örnek için etiket, iki ölçütün birlikte sağlanmasıyla atanmaktadır. Birinci ölçüt zamandır: pencerenin saldırı aralığı ile kesişim oranı bir eşiğin üzerinde olmalıdır. İkinci ölçüt kimliktir: pencere, o senaryonun hedeflediği pod'a ait olmalıdır. Pencerenin saldırı aralığı ile kesişim oranı Denklem~\ref{denk:kesim} ile hesaplanmaktadır,
+
+\begin{equation}
+	\label{denk:kesim}
+	r = \frac{\max\left(0,\ \min(t_{b},\ t_{s}) - \max(t_{a},\ t_{0})\right)}{t_{b} - t_{a}},
+\end{equation}
+
+burada $t_{a}$ ve $t_{b}$ pencere sınırlarını, $t_{0}$ ve $t_{s}$ saldırı aralığının sınırlarını göstermektedir. Kesişim oranı $r > 0{,}5$ ise ve pencere ilgili senaryonun hedef pod'una aitse örnek saldırı olarak, aksi durumda normal olarak etiketlenmektedir. Eşiğin kesin büyük olarak tanımlanması, sınır pencerelerinin saldırı sınıfını kirletmesini önlemektedir.
+
+Her iki ölçütün birlikte aranması zorunludur. Yalnızca zaman ölçütü kullanılsaydı, saldırı aralığında aynı ad alanında bulunan ve saldırıdan etkilenen tüm pod'lar saldırı olarak etiketlenirdi. Yalnızca kimlik ölçütü kullanılsaydı, meşru bir pod üzerinden yürütülen saldırı ilgili pencerede gözden kaçardı. Bu nedenle hedef pod bilgisi, her senaryo kaydıyla birlikte açıkça saklanmaktadır.
+
+\section{Özellik Çıkarımı}
+\label{bol:ozellik}
+
+\subsection{Pencereleme}
+
+Ham kayıtlar, sabit uzunlukta ve örtüşmeyen zaman pencerelerine bölünmektedir. Her pencere ve pod çifti için tek bir örnek üretilmekte; örnek, o pencerede ilgili pod'a ait en az bir kayıt bulunması durumunda oluşturulmaktadır. Pencere başlangıcı $t_{a}$, uzunluğu $T$ olmak üzere $k$ indeksli pencere Denklem~\ref{denk:pencere} ile tanımlanmaktadır,
+
+\begin{equation}
+	\label{denk:pencere}
+	W_{k} = \left[\, t_{0} + k \cdot T,\ \ t_{0} + (k+1) \cdot T \right),
+\end{equation}
+
+burada $t_{0}$ toplama koşusunun başlangıcıdır ve pencere aralığı sağdan açıktır; böylece bir kayıt tam olarak bir pencereye düşmektedir.
+
+Pencere uzunluğu, saldırı tespitinin duyarlılığı ile gürültüye karşı dayanıklılık arasında bir dengeyi temsil etmektedir. Kısa pencereler saldırı davranışının zaman çözünürlüğünü artırırken normal trafiğin doğal dalgalanmalarına karşı daha hassas hâle gelmekte; uzun pencereler ise kısa süreli saldırıları seyreltmektedir. Bu çalışmada on saniyelik pencere temel alınmış, beş ve otuz saniyelik pencereler ise karşılaştırma amacıyla üretilmiştir. On saniyelik pencerenin seçilmesinde belirleyici olan ölçüt, her senaryonun kabul edilebilir sayıda saldırı penceresi üretebilmesidir.
+
+\subsection{Özellik Şeması}
+
+Her örnek için beşi ağ, altısı çalışma zamanı katmanına ait olmak üzere toplam on bir sayısal özellik çıkarılmaktadır. Özellikler \autoref{tab:ozellikler} ile verilmiştir. Özellik vektörü Denklem~\ref{denk:vektor} ile ifade edilmektedir,
+
+\begin{equation}
+	\label{denk:vektor}
+	F = \left[\, f_{1},\ f_{2},\ \ldots,\ f_{11} \right].
+\end{equation}
+
+\begin{table}[htbp]
+	\centering
+	\caption{Özellik şeması}
+	\label{tab:ozellikler}
+	\begin{tabular}{cllp{5.4cm}}
+		\textbf{\#} & \textbf{Özellik} & \textbf{Katman} & \textbf{Açıklama} \\
+		\hline
+		1 & out\_flow\_count & Ağ & Pod'un kaynak olduğu akış sayısı \\
+		2 & out\_drop\_count & Ağ & Düşürülen (DROPPED) akış sayısı \\
+		3 & distinct\_dest\_ports & Ağ & Farklı hedef port sayısı \\
+		4 & distinct\_dest\_ips & Ağ & Farklı hedef IP adresi sayısı \\
+		5 & in\_flow\_count & Ağ & Pod'un hedef olduğu akış sayısı \\
+		6 & exec\_count & Çalışma zamanı & Süreç yürütme olayı sayısı \\
+		7 & exit\_count & Çalışma zamanı & Süreç sonlanma olayı sayısı \\
+		8 & distinct\_binaries & Çalışma zamanı & Farklı ikili dosya sayısı \\
+		9 & kprobe\_count & Çalışma zamanı & Çekirdek yoklama olayı sayısı \\
+		10 & sensitive\_file\_count & Çalışma zamanı & Hassas dosya açma olayı sayısı \\
+		11 & outbound\_connect\_count & Çalışma zamanı & Dışarı bağlantı girişimi sayısı \\
+		\hline
+	\end{tabular}
+\end{table}
+
+Ağ özellikleri Hubble akış kayıtlarından, çalışma zamanı özellikleri ise Tetragon olay kayıtlarından türetilmektedir. Sayım temelli özelliklerin yanı sıra çeşitlilik temelli özellikler (farklı hedef port ve ikili dosya sayıları) de şemaya dâhil edilmiştir; bu özellikler, hacmi değişmeyen ancak niteliği değişen saldırı davranışlarının (örneğin tek bir hedefe yapılan yoğun bağlantı yerine çok sayıda farklı porta yapılan keşif) ayırt edilebilmesi için gereklidir.
+
+Her özellik aynı ölçekte olmadığından, model girişi öncesinde özellikler normalleştirilmektedir. Normal sınıfın ortalaması $\mu_{j}$ ve standart sapması $\sigma_{j}$ olmak üzere $j$ indeksli özelliğin normalleştirilmiş değeri Denklem~\ref{denk:norm} ile elde edilmektedir,
+
+\begin{equation}
+	\label{denk:norm}
+	z_{j} = \frac{f_{j} - \mu_{j}}{\sigma_{j}}.
+\end{equation}
+
+Normalleştirme parametreleri yalnızca eğitim verisinden kestirilmekte, doğrulama ve test verisine aynı dönüşüm uygulanmaktadır; böylece veri sızıntısı önlenmektedir.
+
+\section{Veri Seti Doğrulaması}
+
+Özellik çıkarımının ardından veri seti, tek katmanlı ve çok katmanlı modellerin eğitilmesine geçilmeden önce nicel ölçütlerle doğrulanmaktadır. Bu adımın gerekçesi, küçük ve dengesiz bir veri setinin yanıltıcı biçimde yüksek başarım göstermesidir: saldırı sınıfı azınlıkta olduğunda bir model, sınıfları birbirinden ayıran anlamlı bir örüntü öğrenmeden de yüksek doğruluk elde edebilmektedir.
+
+Doğrulama iki eksende yapılmaktadır. Birinci eksen hacimdir: her senaryo için yeterli sayıda pencere, normal sınıfı için yeterli sayıda örnek ve toplamda yeterli büyüklükte bir veri seti bulunması beklenmektedir. İkinci eksen ayırt edilebilirliktir: her senaryonun en az bir özellikte normal sınıfından ölçülebilir biçimde ayrışması gerekmektedir. İkinci eksenin ölçüsü olarak, saldırı ve normal sınıfların ortalama değerleri arasındaki farkın normal sınıfın standart sapmasına oranı kullanılmaktadır; bu ölçü birimsiz olduğundan farklı özellikler arasında karşılaştırma yapılabilmektedir. Ölçütlerin tümü \autoref{tab:kabul} ile verilmiştir.
+
+\begin{table}[htbp]
+	\centering
+	\caption{Veri seti kabul ölçütleri}
+	\label{tab:kabul}
+	\begin{tabular}{ll}
+		\textbf{Ölçüt} & \textbf{Hedef} \\
+		\hline
+		Senaryo başına pencere sayısı & En az 30 \\
+		Normal sınıfı örnek sayısı & En az 200 \\
+		Toplam örnek sayısı & En az 500 \\
+		Normal pencerelerde çalışma zamanı kapsamı & En az \%20 \\
+		Ayırt edilemeyen senaryo sayısı & 0 \\
+		\hline
+	\end{tabular}
+\end{table}
+
+Çalışma zamanı kapsamı ölçütü, normal sınıfına ait pencerelerin en az beşte birinde en az bir çalışma zamanı olayının bulunmasını gerektirmektedir. Bu ölçüt doğrudan, tek bir özelliğin sınıfları ayırmaya yetip yetmediğini sınamaktadır: normal sınıfında çalışma zamanı olayı hiç bulunmuyorsa, herhangi bir olayın varlığı tek başına saldırı göstergesi hâline gelir ve çok katmanlı füzyonun katkısı ölçülemez hâle gelir. Ayırt edilebilirlik ölçütünü sağlamayan bir senaryonun güçlendirilmesi ya da kapsam dışı bırakılması gerekmektedir.
+
+\section{Değerlendirme Yöntemi}
+
+Değerlendirme, tek katmanlı temel modellerin çok katmanlı yaklaşımla karşılaştırılmasına dayanmaktadır. Karşılaştırmanın adil olabilmesi için tüm modeller aynı eğitim, doğrulama ve test ayrımı üzerinde ve aynı özellik ön işleme adımlarıyla değerlendirilmektedir. Veri seti zamana göre sıralı olduğundan, rastgele bölme yerine zamana dayalı bölme tercih edilmektedir; bu yaklaşım, aynı saldırı koşusuna ait pencerelerin hem eğitim hem test kümesine düşmesinden doğacak iyimser sapmayı önlemektedir.
+
+Katman bazlı anomali skorları gözetimsiz modellerle üretilmektedir. Her katman için, yalnızca o katmana ait özellikler kullanılarak bir anomali skoru hesaplanmakta ve skor $[0,1]$ aralığına ölçeklenmektedir. Füzyon aşamasında iki yaklaşım karşılaştırılmaktadır. Skor seviyesinde füzyonda katman skorları ağırlıklı olarak birleştirilmektedir,
+
+\begin{equation}
+	\label{denk:skorfuzyon}
+	s = w_{1} \cdot s_{ag} + w_{2} \cdot s_{cz},
+\end{equation}
+
+burada $s_{ag}$ ve $s_{cz}$ sırasıyla ağ ve çalışma zamanı katmanlarının anomali skorlarını, $w_{1}$ ve $w_{2}$ ise bu katmanların ağırlıklarını göstermektedir. Özellik seviyesinde füzyonda ise iki katmanın özellikleri tek bir vektörde birleştirilmekte ve tek bir model bu birleşik vektör üzerinde eğitilmektedir. Karar, birleşik skorun bir eşik değerini aşması durumunda anomali yönünde verilmektedir,
+
+\begin{equation}
+	\label{denk:karar}
+	\hat{y} = \begin{cases} 1, & s \geq \theta, \\ 0, & s < \theta. \end{cases}
+\end{equation}
+
+Başarım, kesinlik ve duyarlılık ölçütleri ile bunların harmonik ortalaması olan $F_{1}$ skoru üzerinden değerlendirilmektedir,
+
+\begin{equation}
+	\label{denk:f1}
+	P = \frac{T_{p}}{T_{p} + F_{p}}, \qquad
+	R = \frac{T_{p}}{T_{p} + F_{n}}, \qquad
+	F_{1} = \frac{2 \cdot P \cdot R}{P + R},
+\end{equation}
+
+burada $T_{p}$, $F_{p}$ ve $F_{n}$ sırasıyla doğru pozitif, yanlış pozitif ve yanlış negatif sayılarını göstermektedir. Dengesiz veri setlerinde tek bir eşik değerine bağlı kalmamak için, eşik değiştirilerek elde edilen ROC eğrisi ve bu eğrinin altındaki alan (AUC) da raporlanmaktadır. Özellik seviyesinde füzyonun katkısının yorumlanabilmesi amacıyla, füzyon modelinin kararlarında özelliklerin etkisini gösteren açıklanabilirlik analizleri de değerlendirmeye dâhil edilmektedir.
+
+\section{Yöntemin Sınırlılıkları}
+\label{bol:sınırlılık}
+
+Deneysel ortamın ve kullanılan araçların ölçümle belirlenmiş kimi sınırlılıkları, yöntemin yorumlanmasında dikkate alınmalıdır. Bu sınırlılıklar aşağıda sıralanmış ve her biri için alınan karar belirtilmiştir.
+
+Katman yedi görünürlüğü kapsam dışında bırakılmıştır. Hubble'da katman yedi akışlarının görünebilmesi için pod düzeyinde ek yapılandırma gerekmektedir. Yapılan ölçümlerde ilgili anotasyon ile katman yedi kayıtlarının Hubble'a ulaştığı doğrulanmış, ancak aynı yapılandırmanın pod'un ad çözümlemesini bozduğu gözlenmiştir; anotasyon, endpoint'i politika yaptırım kipine geçirmekte ve ad çözümlemesine izin veren bir kural tanımlanmadığı için DNS trafiği düşmektedir. Doğru çözüm, açık bir Cilium Ağ Politikası tanımlamaktır; ancak bu değişiklik tüm demo endpoint'lerini yaptırım kipine geçirdiğinden ve veri toplama koşusu öncesinde doğrulanmadığından, veri setinin sessizce bozulması riski göze alınmamıştır. Bu kapsam dışı bırakma kararının doğrudan sonucu, DNS tabanlı sızıntı senaryosunun ağ katmanındaki gerçek izinin bu veri setinde görünmemesidir.
+
+Seçicili izleme politikaları, komut yürütme yoluyla başlatılan süreçlere atfedilememektedir. Ölçümler, Tetragon'un ilgili süreci konteynere çözemediğini ve seçici içeren politikaları atladığını göstermiştir; seçici içermeyen politikalar ise bu süreçler için de çalışmaya devam etmektedir. Bu nedenle hassas dosya erişimi senaryosu, senaryonun pod'un ana süreci olarak çalıştırıldığı ayrı bir kip ile uygulanmaktadır.
+
+Hassas dosya erişimini izleyen çekirdek kancası yalnızca başarılı dosya açma işlemlerinde tetiklenmektedir. Demo iş yükünün tamamı ayrıcalıksız kullanıcı olarak çalıştığından, sistem dosyalarına erişim işletim sistemi tarafından reddedilmekte ve kanca hiç çağrılmamaktadır. Bu nedenle ilgili izleme politikasının yol listesine, ayrıcalıksız pod'ların da okuyabildiği servis hesabı belirteci dizini eklenmiştir; Kubernetes bağlamında bu dosya, bir pod'un ele geçirildiğinin en güçlü göstergelerinden biridir. Aynı gerekçeyle, izleme yığınının kendi servisleri kendi belirteçlerini düzenli olarak okuduğundan, bu olaylar özellik çıkarımında ad alanı filtresiyle dışarıda tutulmaktadır.
+
+Kısıtlı dış ağ erişimi, dışarı yönelen bağlantı senaryosunun tasarımını belirlemiştir. Ölçümlerde kümeden yalnızca belirli bir dış adres ve port çiftine erişilebildiği, yaygın olarak kullanılan diğer adres ve portların kapalı olduğu görülmüştür. Senaryo, erişilebilir olduğu doğrulanan adres ve port çifti kullanılarak tanımlanmıştır.
+
+Senaryoların çalıştırıldığı konteyner imajlarında yetenekler sınırlıdır. İncelenen imajların hiçbirinde genel amaçlı bir HTTP istemcisi bulunmadığından, port taraması ham TCP bağlantı denemeleriyle gerçekleştirilmektedir. Benzer biçimde, kimi hassas dosya yolları bu imajlarda hiç bulunmamaktadır. Senaryo gövdeleri, hedef imajlarda varlığı doğrulanan araçlarla sınırlandırılmıştır.
+
+Son olarak, normal sınıfına eklenen bakım iş yükü sentetiktir. Gerçek ortamlarda meşru çalışma zamanı aktivitesi periyodik bakım işleri, günlük döndürme ve sağlık denetimleri gibi kaynaklardan doğar ve eklenen iş yükü bu davranışı taklit etmektedir; ancak üretilen aktivitenin gerçek bir üretim ortamının çeşitliliğini tam olarak yansıttığı söylenemez. Bu durum, normal sınıfının çalışma zamanı özelliklerinin dağılımını olduğundan daha düzenli kılabileceğinden, sonuçlar yorumlanırken göz önünde bulundurulmalıdır.

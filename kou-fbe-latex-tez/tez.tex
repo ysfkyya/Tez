@@ -1,0 +1,133 @@
+\documentclass[msc]{kou}
+
+% Bazı temel bilgiler.
+\makeatletter
+
+% Kaynak dosyası.
+\addbibresource{kaynaklar.bib}
+% \addbibresource{kisisel.bib}   % kişisel yayın olunca açılacak
+\addbibresource{kaynaklar-tez.bib}
+
+% Başlık
+\baslik{Bulut Platformlarında Log ve Metrik Korelasyonuna Dayalı Yapay Zekâ Destekli Proaktif Sağlık ve Kapasite Yönetimi}
+
+% İngilizce başlık
+\thetitle{AI-Assisted Proactive Health and Capacity Management Based on Log and Metric Correlation in Cloud Platforms}
+
+% Yazar (Soyad Büyük yazılması gerekmektedir.)
+\yazar{Yusuf KAYA}
+
+% Anabilim dalı - departman
+\bolum{Yazılım Mühendisliği}
+
+% Tarih (TODO: teslim tarihine göre güncelle)
+\tarihAY{}
+\tarihYIL{2026}
+
+% Savunma Tarihi (TODO: güncelle)
+\starih{../../....}
+
+% Jüri Üyeleri Adları ile Açıklamaları.
+% (TODO: diğer jüri üyelerinin ünvan/adlarını doldur. Yüksek lisansta genellikle
+%  3 üye bulunur; fazla satırları % ile kapatabilirsin.)
+\jrBIR{Doç. Dr. Hakan GÜNDÜZ}
+\jrBIRd{Danışman, Kocaeli Üniv.}
+
+\jrIKI{Prof.Dr./Doç.Dr./Dr. Öğr. Üyesi}
+\jrIKId{Jüri Üyesi, Kocaeli Üniv.}
+
+\jrUC{Prof.Dr./Doç.Dr./Dr. Öğr. Üyesi}
+\jrUCd{Jüri Üyesi, Kocaeli Üniv.}
+
+\jrDORT{Prof.Dr./Doç.Dr./Dr. Öğr. Üyesi}
+\jrDORTd{Jüri Üyesi, Kocaeli Üniv.}
+
+\jrBES{Prof.Dr./Doç.Dr./Dr. Öğr. Üyesi}
+\jrBESd{Jüri Üyesi, Kocaeli Üniv.}
+
+\makeatother
+
+% hyperref'in \autoref isimleri babel'ın ana dilini almaz ve İngilizce kalır
+% ("Table 3.1", "Figure 3.1", "section 3.9"). TYK metin içi atıflarda "Tablo",
+% "Şekil" ve "Bölüm" isimlerini zorunlu kıldığı için açıkça tanımlanır.
+\renewcommand{\figureautorefname}{Şekil}
+\renewcommand{\tableautorefname}{Tablo}
+\renewcommand{\chapterautorefname}{Bölüm}
+\renewcommand{\sectionautorefname}{Bölüm}
+\renewcommand{\subsectionautorefname}{Bölüm}
+
+\begin{document}
+
+\kapakolustur
+\onayolustur
+
+% Romen rakamlarının başlatılması
+\clearpage
+\pagenumbering{roman}
+
+% Dizinleri  yazdırırken satır aralıklarının düzenlenmesi için
+% grup içerisine alınmış ve düzenleme yapılmıştır. Ayrıca gerekli
+% dizin isimlendirmeleri düzenlenmiştir.
+\begingroup
+\singlespacing
+
+\etikolustur
+\fikriolustur
+
+\input{bolumler/onsoz.tex}
+\onsozolustur
+
+\renewcommand{\listfigurename}{Şekiller Dizini}
+\renewcommand{\listtablename}{Tablolar Dizini}
+\tableofcontents
+\listoffigures
+\listoftables
+
+\chapter*{Simgeler ve Kısaltmalar Dizini}
+\tocless\section{Simgeler}
+\input{bolumler/simgeler.tex}
+\tocless\section{Kısaltmalar}
+\addtocounter{section}{1}
+\input{bolumler/kisaltmalar.tex}
+
+\input{bolumler/ozet.tex}
+\ozetolustur
+
+\input{bolumler/abstract.tex}
+\createabstract
+
+\endgroup
+
+% Latin/Arabic rakamların kullanılması
+\clearpage
+\pagenumbering{arabic}
+
+% Bolumlerin eklenmesi
+\input{bolumler/giris.tex}
+\input{bolumler/genelbilgiler.tex}
+\input{bolumler/malzemeveyontem.tex}
+\input{bolumler/bulgular.tex}
+\input{bolumler/sonuclar.tex}
+
+% Satır aralığının tekrar 1 satır olduğu Ekler,
+% Kaynaklar, Kişisel yayın ve eser ile özgeçmiş bölümünün
+% gruplandırılması
+\begingroup
+\singlespacing
+\sloppy
+\printbibliography[title={Kaynaklar}, notcategory=nobibliography]
+
+% Ekler bölümü var ise hem "\eklerolustur" komutunu hemde
+% gerekli .tex dosyalarını input olarak giriniz.
+\eklerolustur
+\input{bolumler/ekA.tex}
+
+% Kişisel yayın ve eser bölümü
+\begin{refsection}
+\input{bolumler/kisiseleser.tex}
+\end{refsection}
+% Özgeçmiş bölümü
+\input{bolumler/ozgecmis.tex}
+
+\endgroup
+\end{document}

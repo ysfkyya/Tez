@@ -1,0 +1,7 @@
+# Panonun bağımlılıkları — toplama hattından (src/requirements.txt) AYRI tutulur,
+# böylece `make setup` (veri toplama) gereksiz yere jupyterlab çekmez.
+# Kurulum: make nb-setup
+jupyterlab>=4.4
+ipykernel>=6.29
+matplotlib>=3.9
+itables>=2.9        # parquet önizlemeleri: sırala/ara/filtrele/sayfala
