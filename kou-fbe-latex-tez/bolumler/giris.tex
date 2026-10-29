@@ -1,28 +1,95 @@
-\chapter{Giriş}
+\chapter{GİRİŞ}
+\label{ch:giris}
 
 \section{Tezin Konusu ve Önemi}
 
-Bulut bilişimin yaygınlaşmasıyla birlikte uygulamalar giderek konteyner tabanlı ve mikroservis mimarisiyle geliştirilmekte; bu uygulamaların dağıtımı, ölçeklenmesi ve yaşam döngüsü yönetimi için konteyner orkestrasyon platformlarından yararlanılmaktadır. Bu platformlar arasında Kubernetes, ölçeklenebilirlik ve otomasyon yetenekleri sayesinde mikroservis mimarileri ve bulut tabanlı uygulama altyapıları için en yaygın kullanılan sistem haline gelmiştir \autocite{soldanibrogi2021}. Ancak Kubernetes ortamlarının dinamik yapısı, kısa ömürlü iş yükleri ve çok katmanlı mimarisi, geleneksel güvenlik izleme ve saldırı tespit yöntemlerini yetersiz kılmaktadır. İmza tabanlı ve çevre (perimeter) tabanlı yaklaşımlar, sürekli değişen konteyner ortamlarında sınırlı kalmakta; bu nedenle Kubernetes tabanlı sistemlerde güvenlik olaylarının etkin biçimde izlenmesi ve anormal davranışların erken aşamada tespit edilmesi önemli bir araştırma alanı haline gelmiştir.
+Kurumsal ve akademik yapılarda giderek yaygınlaşan özel bulut altyapıları, büyük miktarda işlem, bellek ve depolama kaynağı barındırmaktadır.
+Bu altyapıların sağlıklı biçimde işletilmesi; kaynak kullanımının takip edilmesini, arıza öncesi sinyallerin erkenden fark edilmesini ve operasyon ekiplerinin zamanında müdahale edebilmesini gerektirmektedir.
+OpenStack \autocite{openstack2024}, açık kaynaklı mimarisi ve modüler bileşenleriyle (Nova, Neutron, Cinder, Keystone) özel bulut kurulumlarında tercih edilen önde gelen platformlardan biridir.
+
+Geleneksel izleme yaklaşımları, metrik eşik değerlerini anlık olarak kontrol eden reaktif sistemlere dayanmaktadır.
+Bu yaklaşım, yalnızca bir kaynak eşiği aştıktan sonra alarm üretmekte; operasyonel müdahale için yeterli zaman tanımamaktadır.
+Oysa log verileri ve performans metrikleri birlikte değerlendirildiğinde, arıza veya kapasite aşımına ilişkin örüntüler genellikle saatler, hatta günler öncesinden gözlemlenebilmektedir.
+Bu gerçeklik, log ve metrik korelasyonuna dayalı proaktif izleme yaklaşımlarını araştırmacılar ve uygulayıcılar için kritik bir alan haline getirmiştir \autocite{notaro2021}.
+
+Yapay zekâ destekli BT operasyonları (AIOps) alanındaki çalışmalar, büyük ölçekli sistem log ve metriklerinden anlamlı örüntüler çıkarmak için makine öğrenmesi yöntemlerinin kullanılabileceğini göstermektedir \autocite{dang2019}.
+Bununla birlikte, mevcut çalışmaların büyük çoğunluğu log analizi ya da metrik bazlı kapasite tahminini ayrı ayrı ele almakta; bu iki veri kaynağını tek bir karar destek çerçevesinde birleştiren uygulamalı çalışmalar ise sınırlı kalmaktadır.
+
 
 \section{Problem Tanımı}
 
-Günümüzde Kubernetes ortamlarında ağ trafiği eBPF tabanlı Hubble gibi araçlarla, çalışma zamanı davranışı ise Tetragon gibi araçlarla ayrı ayrı izlenebilmektedir. Ancak bu iki veri kaynağı çoğunlukla birbirinden bağımsız ve ayrı panellerde toplanmakta; ağ katmanındaki bir olay ile çalışma zamanı katmanındaki bir olay birbiriyle ilişkilendirilmemekte ve sistemin güvenlik riski birleşik bir skor olarak hesaplanmamaktadır. Tek bir katmana odaklanan yöntemler ise birden fazla katmana yayılan saldırı zincirlerinin (örneğin ağ keşfi, yatay hareket ve ayrıcalık yükseltme) tamamını görememekte ve hem yanlış alarm hem de kaçırılan saldırı riskini artırmaktadır \autocite{chandola2009}.
+Özel bulut altyapılarında kaynak yönetimi birbirine bağlı birden fazla zorluk barındırmaktadır:
+
+\begin{maddelendir}[label=\arabic*.]
+    \item \textbf{Reaktif izleme sınırlaması:}
+    Mevcut sistemler kaynak kullanımı eşiği aştığında alarm üretir; ancak o noktada operatörün müdahale süresi kısıtlanmıştır.
+    Örneğin bellek kullanımı \%88 eşiğine yaklaştığında artık yeni sanal makine taleplerini karşılamak güçleşmektedir.
+
+    \item \textbf{Log–metrik kopukluğu:}
+    Log sistemleri (OpenSearch/Elasticsearch) ve metrik sistemleri (Prometheus/Thanos) ayrı araçlarla yönetilmekte, iki kaynak arasındaki ilişki çoğunlukla manuel incelemeye bırakılmaktadır.
+    Bu kopukluk, \textit{slow\_response} ve \textit{memory\_pressure} gibi erken uyarı loglarının kapasite verileriyle ilişkilendirilmesini güçleştirmektedir.
+
+    \item \textbf{Dönemsel yük artışları:}
+    Staj dönemleri, sınav dönemleri ve eğitim kampanyaları gibi dönemsel olaylar kaynaklar üzerinde ani ve öngörülemeyen baskı yaratmaktadır.
+    Bu baskılar, statik eşik tabanlı sistemler tarafından önceden saptanamamaktadır.
+
+    \item \textbf{Açıklanabilirlik eksikliği:}
+    Tahmin modelleri genellikle "kara kutu" olarak çalışmakta; hangi sinyalin kapasiteyi ne ölçüde etkilediği operatörlere aktarılamamaktadır.
+    Bu durum model çıktılarına güveni zayıflatmaktadır.
+\end{maddelendir}
+
 
 \section{Tezin Amacı ve Kapsamı}
 
-Bu tezin amacı, Kubernetes ortamlarında güvenlik gözlemlenebilirliğini artırmak amacıyla ağ telemetri verileri ile çalışma zamanı olaylarını tek bir hatta birleştiren ve yapay zekâ tabanlı çok katmanlı bir anomali tespiti yaklaşımını geliştirmek ve deneysel olarak değerlendirmektir. Çalışma kapsamında; ağ telemetrisinin ve çalışma zamanı olaylarının toplanması, ön işlenmesi, özellik çıkarımı, katman bazlı anomali tespiti ve bu katmanların birleşik bir anomali skorunda birleştirilmesi süreçleri ele alınmaktadır. Model geliştirmede gözetimsiz ve yarı gözetimli öğrenme yaklaşımlarından yararlanılması hedeflenmektedir. Veri açısından ise hibrit bir strateji benimsenmiştir: ağ ve çalışma zamanı katmanlarının ayrı ayrı doğrulanması için literatürdeki hazır veri kümeleri kullanılırken, çok katmanlı füzyonun gerçek verisi Kubernetes kümesi üzerinde kontrollü senaryolarla üretilecektir.
+Bu tezin amacı, OpenStack tabanlı özel bulut altyapısı için log ve metrik korelasyonuna dayalı, yapay zekâ destekli proaktif bir sağlık ve kapasite yönetim sistemi (CloudMon) geliştirmek ve deneysel olarak değerlendirmektir.
+
+Sistem, Ocak 2025 -- Temmuz 2026 (18 ay, 13.104 saatlik nokta) dönemine ait OpenStack metrik ve log verisi üzerinde altı adımlı bir pipeline çerçevesinde çalışmaktadır:
+
+\begin{maddelendir}[label=\textbf{Adım \arabic*.}]
+    \item \textbf{Veri Yükleme:} Prometheus/Thanos kaynaklı saatlik metrikler ile OpenSearch kaynaklı log özellik tablosu okunur.
+
+    \item \textbf{Log İşleme Hattı:} Dört aşamalı log analizi yürütülür: (i) ayrıştırma ve tip sınıflandırması, (ii) zamansal agregasyon ve z-skor hesabı, (iii) anomali tespiti, (iv) ön-arıza örüntü çıkarımı.
+
+    \item \textbf{Özellik Mühendisliği:} Metrik ve log sayımlarından 272 özellik üretilir (hareketli ortalama/std, gecikme, değişim hızı, zaman özellikleri, erken uyarı bileşik sinyali).
+
+    \item \textbf{Kapasite Tahmini:} Yedi farklı regresyon algoritması (LR, RF, GBT, XGB, LGBM, CatBoost, MLP) üç kaynak (vCPU, Bellek, Disk) için iki tahmin ufkunda (24 saat, 72 saat) eğitilerek toplam 42 model değerlendirilir.
+
+    \item \textbf{SHAP Analizi:} Her model için özellik önem sıralaması TreeExplainer/LinearExplainer yöntemiyle hesaplanır; hangi metrik ya da log tipinin tahmine en çok katkıda bulunduğu yorumlanır.
+
+    \item \textbf{Proaktif Öneri Üretimi:} Kural tabanlı öneri motoru ve iki büyük dil modeli (Claude Sonnet, GPT-4o) birleştirilerek operasyon ekibine önceliklendirilmiş, aksiyona dönüştürülebilir öneriler üretilir.
+\end{maddelendir}
+
+Çalışma kapsamı dışında bırakılanlar: gerçek zamanlı akış işleme (streaming), OpenStack altyapısının kurulumu ve yapılandırması, veri üretim süreçlerinin iyileştirilmesi.
+
 
 \section{Tezin Katkıları}
 
-Bu tezin başlıca katkıları aşağıda sıralanmıştır:
+Bu çalışmanın başlıca özgün katkıları şunlardır:
+
 \begin{maddelendir}[label=\arabic*.]
-	\item Özellik seviyesinde füzyon: ağ telemetrisinden ve çalışma zamanı olaylarından çıkarılan özelliklerin tek bir özellik vektöründe birleştirilerek tek bir öğrenme modeliyle birlikte öğrenilmesi. Bu, tezin ana özgün katkısıdır; literatürdeki çalışmalar bu iki veri kaynağını ağırlıklı olarak karar veya uyarı seviyesinde birleştirmekte, ortak bir özellik uzayında birleştiren çalışmalar ise sınırlı kalmaktadır.
-	\item Çok katmanlı anomali skorlaması: katman bazlı anomali skorlarının ağırlıklı olarak birleştirilerek her pod için birleşik bir güvenlik skoruna dönüştürülmesi. Bu yaklaşım, özellik seviyesindeki füzyonun karşılaştırma temelini oluşturur ve özellik seviyesinde birleştirmenin skor seviyesinde birleştirmeye göre ne ölçüde iyileşme sağladığının deneysel olarak ölçülmesine olanak tanır.
-	\item Yapay zekâ tabanlı tespit: tek katmanlı temel modellerden birleşik skora uzanan yöntemsel omurga; gözetimsiz ve yarı gözetimli öğrenme yaklaşımlarının Kubernetes telemetrisi üzerindeki davranışının incelenmesi.
+    \item \textbf{Log--metrik korelasyonuna dayalı kapasite tahmini:}
+    Literatürdeki çalışmaların büyük bölümü metrik ya da log verisini ayrı ele alırken, bu çalışmada her ikisi ortak bir özellik uzayında birleştirilerek kapasite tahminine katkısı ölçülmüştür.
+    SHAP analizleri, \textit{resource\_exhausted} ve \textit{scheduler\_degradation} gibi log sayılarının kapasite tahmininde metrik özellikleriyle rekabet edebilir düzeyde etkili olduğunu ortaya koymaktadır.
+
+    \item \textbf{Dört aşamalı log işleme pipeline'ı:}
+    Ham log sayımlarından ön-arıza örüntülerine uzanan sistematik bir analiz hattı tasarlanmıştır.
+    Bu hat, \textit{slow\_response} loglarının arızadan ortalama 68 saat önce anormal artış gösterdiği gibi içgörüler üretmektedir.
+
+    \item \textbf{Açıklanabilir kapasite tahmin sistemi:}
+    SHAP değerleri her tahmin için hesaplanmakta ve en etkili özellikler operatöre aktarılmaktadır.
+    Bu yaklaşım, kara kutu model çıktılarını yorumlanabilir aksiyonlara dönüştürmektedir \autocite{lundberg2017, lundberg2020}.
+
+    \item \textbf{Zenginleştirilmiş bağlamla LLM destekli öneri motoru:}
+    Metrik durumu, log anomali sinyalleri, SHAP özellik önem sıralaması ve cascade riski birleştirilerek oluşturulan yapılandırılmış bağlam, Claude Sonnet ve GPT-4o modellerine iletilmektedir.
+    Sistem, servis bazında önceliklendirilmiş ve uygulanabilir aksiyonlar üretmektedir \autocite{brown2020, openai2023}.
 \end{maddelendir}
 
-Bu katkıları mümkün kılan tamamlayıcı unsur, veri üretimidir: ağ akışları ile çalışma zamanı olayları aynı küme üzerinde, senkron zaman damgalarıyla ve kontrollü saldırı senaryolarıyla etiketlenerek toplanmıştır. Hubble akışları ile Tetragon olaylarını aynı ortamda eşleştiren halka açık bir veri kümesi bulunmadığından, çok katmanlı füzyonun değerlendirilmesi için gereken veri bu çalışma kapsamında üretilmiştir. Hubble trafiğinden servis konuşma grafı çıkarılarak otomatik Cilium Ağ Politikası üretimi ise bu tezin kapsamı dışında bırakılmış ve gelecek çalışma olarak ele alınmıştır.
 
 \section{Tez Organizasyonu}
 
-Tez beş ana bölümden oluşmaktadır. Birinci bölümde (Giriş) çalışmanın konusu, problemi, amacı ve katkıları özetlenmiştir. İkinci bölümde (Genel Bilgiler) anomali tespiti yöntemleri, ağ ve çalışma zamanı katmanındaki çalışmalar ile eBPF tabanlı gözlemlenebilirlik altyapısı incelenmektedir. Üçüncü bölümde (Malzeme ve Yöntem) kullanılan araçlar, veri toplama hattı, özellik çıkarımı ve model yaklaşımları tanıtılmaktadır. Dördüncü bölümde (Bulgular ve Tartışma) deneysel sonuçlar sunulup değerlendirilmektedir. Beşinci bölümde (Sonuçlar ve Öneriler) ise elde edilen bulgular özetlenmekte ve gelecek çalışma önerileri sunulmaktadır.
+Tez altı ana bölümden oluşmaktadır.
+Birinci bölümde (Giriş) çalışmanın konusu, problemi, amacı ve katkıları özetlenmiştir.
+İkinci bölümde (Genel Bilgiler) AIOps, bulut kapasite yönetimi, log analizi, açıklanabilir yapay zekâ ve büyük dil modelleri konularındaki ilgili literatür incelenmektedir.
+Üçüncü bölümde (Malzeme ve Yöntem) CloudMon sisteminin mimarisi, kullanılan veri kümesi, özellik mühendisliği, model eğitimi ve öneri motoru ayrıntılandırılmaktadır.
+Dördüncü bölümde (Bulgular) 42 modelin karşılaştırmalı sonuçları, SHAP analizleri ve öneri motoru çıktıları sunulmaktadır.
+Beşinci bölümde (Sonuçlar ve Öneriler) elde edilen bulgular değerlendirilmekte, çalışmanın sınırlılıkları tartışılmakta ve gelecek çalışma önerileri sunulmaktadır.
