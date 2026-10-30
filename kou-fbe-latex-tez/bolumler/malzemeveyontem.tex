@@ -131,6 +131,46 @@ Ocak 2025 -- Mart 2026 arası 15 aylık dönem eğitim kümesini, Nisan 2026 -- 
 Bu bölünme yaklaşık \%83 eğitim -- \%17 test oranına karşılık gelmektedir.
 
 
+\section{Veri Ön İşleme}
+\label{sec:onisleme}
+
+Ham veri doğrudan modele verilmeden önce kalite kontrol ve düzenleme adımlarından geçirilmektedir.
+
+\subsection{Eksik Değer İşleme}
+
+Prometheus/Thanos kaynaklı metrik verisinde aralıklı scrape başarısızlıkları nedeniyle seyrek eksik değerler gözlemlenebilmektedir.
+Zaman serisi süreklilik varsayımını korumak amacıyla eksik değerler doğrusal interpolasyon ile doldurulmaktadır:
+\begin{equation}
+    x_t^{*} = x_{t_1} + \frac{x_{t_2} - x_{t_1}}{t_2 - t_1}(t - t_1), \quad t_1 < t < t_2
+    \label{eq:interpolation}
+\end{equation}
+burada $t_1$ ve $t_2$ eksik noktanın öncesindeki ve sonrasındaki gözlem anlarını göstermektedir.
+6 saatten uzun süren kopukluklar (ör. bakım pencereleri) interpolasyona tabi tutulmamakta; bu satırlar eğitim kümesinden çıkarılmaktadır.
+
+Log özellik tablosundaki eksik değerler sıfır ile doldurulmaktadır; bu yaklaşım tutarlıdır çünkü eksik log sayımı, o saat dilimine ait log kaydı bulunmadığını (yani sıfır olay) ifade etmektedir.
+
+\subsection{Aykırı Değer İşleme}
+
+Anlık donanım arızaları veya veri toplama hataları kaynaklı uç değerler, Winsorization yöntemiyle sınırlandırılmaktadır:
+\begin{equation}
+    x_t^{\text{clip}} = \max\!\bigl(q_{0.5}, \min(x_t, q_{99.5})\bigr)
+    \label{eq:winsor}
+\end{equation}
+$q_{0.5}$ ve $q_{99.5}$ eğitim kümesinin \%0{,}5 ve \%99{,}5'lik dilimleridir.
+Test kümesine aynı eğitim kümesi sınır değerleri uygulanmakta; böylece bilgi sızıntısı önlenmektedir.
+
+\subsection{Ölçekleme}
+
+Doğrusal Regresyon ve MLP modelleri özellik büyüklüklerine duyarlıdır.
+Bu modeller için StandardScaler uygulanmaktadır:
+\begin{equation}
+    \tilde{x}_t = \frac{x_t - \mu_{\text{eğitim}}}{\sigma_{\text{eğitim}}}
+    \label{eq:scaler}
+\end{equation}
+Ortalama ve standart sapma yalnızca eğitim kümesinden hesaplanmakta; aynı parametreler test kümesine uygulanmaktadır.
+Ağaç tabanlı modeller (RF, GBT, XGB, LGBM, CatBoost) bölme noktası seçiminde ölçek bağımsız çalıştığından normalizasyon gerektirmemektedir.
+
+
 \section{Log İşleme Pipeline'ı}
 \label{sec:logpipeline}
 
@@ -167,24 +207,78 @@ Eşiği aşan servisler ($s_j > 0{,}7$: \textit{degraded}; $s_j > 0{,}9$: \texti
 
 \subsection{Aşama 2 — Zamansal Agregasyon ve Trend Analizi}
 
-Saatlik log sayımlarından 6, 24 ve 72 saatlik hareketli ortalamalar hesaplanmaktadır.
-Her log tipi için 7 günlük pencerede z-skor tabanlı trend yönü (\textit{increasing}, \textit{decreasing}, \textit{stable}) belirlenmektedir.
+Saatlik log sayımlarından $w \in \{6, 24, 72\}$ saatlik hareketli ortalamalar hesaplanarak kısa, orta ve uzun vadeli log yoğunluğu temsil edilmektedir.
+Her log tipi için 7 günlük (168 saatlik) pencerede z-skor tabanlı trend yönü belirlenmektedir.
+Trend yönü, son 7 günlük ortalama ile önceki 7 günlük ortalama arasındaki yüzdesel farka göre sınıflandırılmaktadır:
+
+\begin{equation}
+    \Delta_{\text{trend}}^{(\ell)} = \frac{\bar{x}_{168}^{\text{son}} - \bar{x}_{168}^{\text{önceki}}}{\bar{x}_{168}^{\text{önceki}} + \epsilon} \times 100
+    \label{eq:trend}
+\end{equation}
+
+$\Delta_{\text{trend}} > 10$: \textit{increasing} (artış), $\Delta_{\text{trend}} < -10$: \textit{decreasing} (azalış), aksi hâlde \textit{stable} (kararlı) olarak etiketlenmektedir.
+Bu trend bilgisi hem LLM bağlamına eklenmekte hem de öneri motorunun kural kanallarına girdi oluşturmaktadır.
 
 \subsection{Aşama 3 — Anomali Tespiti}
 
-Z-skor eşiği ($\sigma > 2{,}5$) ve ani artış tespiti (spike detection) ile anormal log yoğunlaşmaları belirlenmektedir.
-Birden fazla servisin aynı zaman penceresinde degradasyon göstermesi \textit{cascade} riski olarak işaretlenmekte ve zaman damgası kaydedilmektedir.
+Anomali tespiti iki mekanizma ile gerçekleştirilmektedir:
+
+\textbf{Z-skor tabanlı anomali:} Her log tipi için \autoref{eq:zscore}'de tanımlanan z-skor değeri $\sigma > 2{,}5$ eşiğini aştığında anomali olarak işaretlenmektedir.
+Bu eşik, istatistiksel olarak normal dağılım varsayımı altında gözlem değerinin tarihsel normdan 2{,}5 standart sapma uzaklaştığını göstermektedir.
+
+\textbf{Cascade risk tespiti:} Birden fazla OpenStack servisinin (Nova, Neutron, Keystone, Cinder) aynı 1 saatlik pencerede degradasyon skoru eşiğini (\autoref{eq:servis-skor}: $s_j > 0{,}7$) aşması cascade riski olarak tanımlanmaktadır.
+Cascade olayı; zaman damgası, etkilenen servis listesi ve birlikte görülme süresiyle kayıt altına alınmaktadır.
+Bu tespit özellikle önemlidir: tek servis arızası operasyonel bir sorun olurken, eş zamanlı çoklu servis degradasyonu sistemik bir altyapı sorununa işaret etmekte ve önlem alınmadığında tam platform çöküşüne dönüşebilmektedir.
+
+\textbf{Ani artış (spike) tespiti:} Saatlik sayımın son 6 saatlik ortalamanın 3 katını aşması bir log spike olarak tanımlanmaktadır:
+\begin{equation}
+    \text{spike}_t = \begin{cases} 1 & x_t > 3 \cdot \bar{x}_{6}(t) \\ 0 & \text{aksi hâlde} \end{cases}
+    \label{eq:spike}
+\end{equation}
+Spike olayları z-skor yöntemiyle birlikte kullanıldığında yanlış pozitif oranını düşürmektedir: z-skoru yüksek ama spike olmayan bir gözlem süregelen bir artış eğilimine, hem z-skoru yüksek hem spike olan bir gözlem ise ani bir patlama olayına işaret etmektedir.
 
 \subsection{Aşama 4 — Ön-Arıza Örüntü Çıkarımı}
 
-Geçmiş incident'lerin öncesindeki log imzaları bu aşamada çıkarılmaktadır.
-Her log tipi için "arızadan kaç saat önce, ne oranda artış gösterdi?" sorusu yanıtlanmaktadır.
+Ön-arıza örüntü çıkarımı, geçmiş incident'lerin öncesindeki log imzalarını sistematik biçimde öğrenmek amacıyla tasarlanmıştır.
+Bu aşamada şu soru yanıtlanmaktadır: \textit{Belirli bir log tipi, tarihsel olarak gerçek bir arızadan kaç saat önce ve ne oranda artış göstermiştir?}
+
+Her log tipi $\ell$ ve geçmiş incident kümesi $\mathcal{I}$ için öncü süre ve artış oranı şöyle hesaplanmaktadır:
+\begin{align}
+    \text{lead\_time}_\ell &= \arg\max_{\tau \in [0, T]} \Delta_{\tau}^{(\ell)} \label{eq:leadtime} \\
+    \text{avg\_increase}_\ell &= \frac{1}{|\mathcal{I}|} \sum_{i \in \mathcal{I}} \frac{x_{t_i - \text{lead\_time}}^{(\ell)} - \bar{x}_{\text{baseline}}^{(\ell)}}{\bar{x}_{\text{baseline}}^{(\ell)} + \epsilon} \times 100
+    \label{eq:avgincr}
+\end{align}
+burada $t_i$ incident $i$'nin başlangıç zamanını, $T$ maksimum öncü pencereyi ve $\bar{x}_{\text{baseline}}$ incidentten 30 gün önceki ortalamayı göstermektedir.
+
 Bu örüntüler hem öneri motoruna hem de LLM'e zenginleştirilmiş bağlam olarak beslenmektedir.
-Örneğin \textit{slow\_response} log tipi, geçmiş 15 incident'te arızadan ortalama 68 saat önce \%287 artış göstermiştir.
+Test dönemine ait ön-arıza örüntü analizi sonuçları \autoref{tab:prefailure}'de özetlenmektedir.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Ön-arıza örüntü analizi — geçmiş 15 incident üzerinden hesaplanmış değerler}
+    \label{tab:prefailure}
+    \begin{tabular}{lrrr}
+        \textbf{Log Tipi} & \textbf{Öncü Süre (saat)} & \textbf{Ort. Artış (\%)} & \textbf{Güven} \\
+        \hline
+        \texttt{slow\_response}          & 68 & +287 & \%100 \\
+        \texttt{memory\_pressure}        & 48 & +215 & \%93  \\
+        \texttt{scheduler\_degradation}  & 36 & +178 & \%87  \\
+        \texttt{connection\_pool\_warn}  & 24 & +143 & \%80  \\
+        \texttt{quota\_pressure}         & 18 & +312 & \%73  \\
+        \texttt{disk\_io\_degradation}   & 12 & +95  & \%67  \\
+    \end{tabular}
+\end{table}
+
+Bu tablodan çıkan kritik bulgular şunlardır: (i) \textit{slow\_response} en uzun öncü süresiyle (68 saat) en erken uyarıyı vermekte; bu süre operatöre müdahale için yeterli bir pencere sağlamaktadır.
+(ii) \textit{quota\_pressure} en yüksek artış oranını (\%312) sergilemekte; bu durum kota baskısı başladığında hızla kritik seviyeye ulaşıldığına işaret etmektedir.
+(iii) Öncü süre ile güven değeri arasında ters bir ilişki gözlemlenmektedir: daha erken sinyaller daha az güvenilir, daha geç sinyaller daha güvenilirdir; bu denge operasyonel kararların zamanlamasında dikkate alınmalıdır.
 
 
 \section{Özellik Mühendisliği}
 \label{sec:ozellik}
+
+Makine öğrenmesi modeli ham metrik ve log değerlerini doğrudan öğrenebilse de geçmişin farklı zaman pencerelerinde kodlanması tahmin başarısını önemli ölçüde artırmaktadır.
+Bu nedenle CloudMon, her değişken için birden fazla temporal temsil üretmektedir: ham değer, hareketli ortalama, hareketli standart sapma, gecikme (lag) ve değişim hızı (delta).
 
 Metrik ve log verilerinden toplam 272 özellik türetilmektedir.
 Bu özellikler altı kategoride sınıflandırılmaktadır:
@@ -208,11 +302,82 @@ Bu özellikler altı kategoride sınıflandırılmaktadır:
 Bunlara ek olarak \texttt{early\_warning\_composite} adlı bir bileşik sinyal hesaplanmaktadır.
 Bu sinyal, yedi erken uyarı log tipinin saatlik toplamlarını birleştiren ve genel sistem stresini tek bir boyuta indirgeyen bir özet göstergedir.
 
+\subsection{Özellik Formülasyonları}
+
+$t$ anındaki ham değer $x_t$ için özellik kategorileri matematiksel olarak şöyle tanımlanmaktadır:
+
+\textbf{Hareketli Ortalama (Rolling Mean):}
+\begin{equation}
+    \mu_w(t) = \frac{1}{w} \sum_{k=0}^{w-1} x_{t-k}, \quad w \in \{3, 6, 12, 24, 168\}
+    \label{eq:rmean}
+\end{equation}
+
+\textbf{Hareketli Standart Sapma (Rolling Std):}
+\begin{equation}
+    \sigma_w(t) = \sqrt{\frac{1}{w} \sum_{k=0}^{w-1} \bigl(x_{t-k} - \mu_w(t)\bigr)^2}, \quad w \in \{3, 6, 12, 24\}
+    \label{eq:rstd}
+\end{equation}
+
+\textbf{Gecikme (Lag):}
+\begin{equation}
+    \ell_\tau(t) = x_{t-\tau}, \quad \tau \in \{1, 6, 24, 48, 168\}
+    \label{eq:lag}
+\end{equation}
+
+\textbf{Değişim Hızı (Delta):}
+\begin{equation}
+    \delta_\tau(t) = x_t - x_{t-\tau}, \quad \tau \in \{1, 6, 24\}
+    \label{eq:delta}
+\end{equation}
+
+\textbf{Log Hareketli Toplamı (Rolling Sum):}
+\begin{equation}
+    S_w^{(\ell)}(t) = \sum_{k=0}^{w-1} \ell_{t-k}, \quad w \in \{6, 24, 72\}
+    \label{eq:rsum}
+\end{equation}
+burada $\ell_{t-k}$ $k$ saat önceki log sayımını temsil etmektedir.
+
+\textbf{Z-Skor:}
+Log anomali tespitinde saatlik log sayımlarının 168 saatlik geçmiş penceresine göre normalleştirilmiş sapması hesaplanmaktadır:
+\begin{equation}
+    z_t = \frac{x_t - \bar{x}_{168}(t)}{\hat{\sigma}_{168}(t) + \epsilon}
+    \label{eq:zscore}
+\end{equation}
+burada $\bar{x}_{168}$ son 168 saatin ortalamasını, $\hat{\sigma}_{168}$ standart sapmasını ve $\epsilon$ sayısal kararlılık sabitini göstermektedir.
+
 Hedef değişken her $h \in \{24, 72\}$ saat ufku için üç kaynak ($\hat{y}$: vCPU, Bellek, Disk kullanım yüzdesi) bazında ayrı ayrı oluşturulmaktadır:
 \begin{equation}
     \hat{y}_{t+h} = f(\mathbf{x}_t)
+    \label{eq:hedef}
 \end{equation}
-burada $\mathbf{x}_t$ $t$ anındaki 272 boyutlu özellik vektörünü, $f(\cdot)$ ise eğitilen regresyon modelini temsil etmektedir.
+burada $\mathbf{x}_t \in \mathbb{R}^{272}$ $t$ anındaki tam özellik vektörünü, $f(\cdot)$ ise eğitilen regresyon modelini temsil etmektedir.
+
+\subsection{Özellik Sayısı Dökümü}
+
+272 özelliğin kaynaklara göre dağılımı \autoref{tab:ozellik-sayisi}'de verilmektedir.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Özellik kategorisi ve sayı dökümü}
+    \label{tab:ozellik-sayisi}
+    \begin{tabular}{lrr}
+        \textbf{Kategori} & \textbf{Kaynak Değişken Sayısı} & \textbf{Türetilen Özellik Sayısı} \\
+        \hline
+        Zaman özellikleri       & —  & 7  \\
+        Ham metrik değerleri    & 9  & 9  \\
+        Hareketli ortalama      & 9  & 45 \\
+        Hareketli std sapması   & 9  & 36 \\
+        Gecikme                 & 12 & 60 \\
+        Değişim hızı (delta)    & 9  & 27 \\
+        Log hareketli toplamları& 18 & 54 \\
+        Log z-skorları          & 15 & 15 \\
+        Bileşik sinyaller       & —  & 2  \\
+        \hline
+        \textbf{Toplam}         & —  & \textbf{255} \\
+    \end{tabular}
+\end{table}
+
+\textit{Not: Tabloda sayılan 255 özelliğe ek olarak \texttt{error\_log\_ratio} ve servis sağlık skorları gibi birleşik göstergeler eklenerek toplam 272'ye ulaşılmaktadır.}
 
 
 \section{Kapasite Tahmin Modelleri}
@@ -255,6 +420,42 @@ MLP'de erken durdurma (early stopping) ile aşırı öğrenme önlenmektedir.
 
 Tüm modeller yinelemeli tahmin (iterative forecasting) stratejisiyle değerlendirilmektedir.
 Her test noktasında yalnızca o ana kadar gözlemlenen veri kullanılmakta; böylece gerçek zamanlı operasyonel kullanım koşulları simüle edilmektedir.
+
+\subsection{Değerlendirme Metrikleri}
+
+Model performansı dört tamamlayıcı metrikle ölçülmektedir.
+$y_i$ gerçek değeri, $\hat{y}_i$ tahmin değeri ve $n$ test kümesi büyüklüğü olmak üzere:
+
+\textbf{Ortalama Mutlak Hata (MAE):}
+\begin{equation}
+    \text{MAE} = \frac{1}{n} \sum_{i=1}^{n} |y_i - \hat{y}_i|
+    \label{eq:mae}
+\end{equation}
+Tahmin hatasının yorumlanabilir birimde (yüzde puan) ortalamasını verir; aykırı değerlere karşı RMSE'ye kıyasla daha dayanıklıdır.
+
+\textbf{Kök Ortalama Kare Hata (RMSE):}
+\begin{equation}
+    \text{RMSE} = \sqrt{\frac{1}{n} \sum_{i=1}^{n} (y_i - \hat{y}_i)^2}
+    \label{eq:rmse}
+\end{equation}
+Büyük hataları orantısız biçimde cezalandırır; kapasite planlama bağlamında kritik eşik aşımı hatalarını öne çıkarır.
+
+\textbf{Belirleme Katsayısı ($R^2$):}
+\begin{equation}
+    R^2 = 1 - \frac{\sum_{i=1}^{n}(y_i - \hat{y}_i)^2}{\sum_{i=1}^{n}(y_i - \bar{y})^2}
+    \label{eq:r2}
+\end{equation}
+Modelin verinin varyansını açıklama oranını gösterir. $R^2 = 1$ mükemmel tahmine, $R^2 = 0$ ortalama tahmine ve $R^2 < 0$ ortalama tahminden daha kötü bir modele karşılık gelir.
+
+\textbf{Ortalama Mutlak Yüzdelik Hata (MAPE):}
+\begin{equation}
+    \text{MAPE} = \frac{100}{n} \sum_{i=1}^{n} \left| \frac{y_i - \hat{y}_i}{y_i + \epsilon} \right|
+    \label{eq:mape}
+\end{equation}
+Hata büyüklüğünü yüzde olarak ifade eder; farklı ölçek düzeyindeki kaynakların (vCPU, Bellek, Disk) karşılaştırılmasını kolaylaştırır.
+
+Model sıralamasında birincil ölçüt $R^2$, ikincil ölçüt ise RMSE olarak belirlenmiştir.
+$R^2$ negatif olan modeller test kümesinde anlamsız sayılmaktadır; çünkü bu durum modelin ortalama tahmin (trivial baseline) değerinin de altında kaldığını göstermektedir.
 
 
 \section{SHAP Açıklanabilirlik Analizi}
@@ -339,9 +540,183 @@ LLM'e iletilmeden önce kural tabanlı motor dört kanaldan uyarı üretmektedir
     \item \textbf{Cascade risk kanalı:} Birden fazla servisin eş zamanlı degradasyonu cascade uyarısı olarak raporlanmaktadır.
 \end{maddelendir}
 
-\subsection{LLM Katmanı}
+\subsection{LLM Katmanı ve İstem Şablonu}
 
 Kural tabanlı katmanın çıktıları yukarıda listelenen bağlam katmanlarıyla birleştirilerek yapılandırılmış bir istem oluşturulmaktadır.
 Bu istem Claude Sonnet (\texttt{claude-sonnet-4-6}) ve GPT-4o (\texttt{gpt-4o}) modellerine paralel olarak iletilmektedir.
 Her iki modelin yanıtı tek bir operasyonel rapora derlenmekte; KRİTİK / UYARI öncelik sıralaması ve servis bazında somut aksiyon önerileri içermektedir.
 API anahtarı yapılandırılmadığında sistem, kural tabanlı katmanın çıktılarını doğrudan raporlamakta; LLM sentez katmanı devre dışı kalmaktadır.
+
+LLM'e gönderilen istem şablonunun yapısı aşağıda verilmektedir:
+
+\begin{verbatim}
+Sen deneyimli bir OpenStack bulut operasyonu mühendisisin.
+Aşağıdaki veriler sana sunulmaktadır:
+  - Kapasite tahmin sonuçları (ML modeli çıktısı)
+  - SHAP özellik önem sıralaması (en etkili 5 özellik)
+  - Log anomali özeti (son 24 saat, z-skor > 2.5)
+  - 7 günlük log trend değişimleri
+  - Ön-arıza örüntüleri (tarihsel incident analizi)
+  - Cascade risk tespitleri
+  - Servis sağlık durumları
+
+=== KAPASİTE DURUMU ===
+[kapasite_bloğu]
+
+=== LOG ANOMALİLERİ (Son 24 Saat) ===
+[anomali_bloğu]
+
+=== LOG TRENDLERİ (7 Gün) ===
+[trend_bloğu]
+
+=== ÖN-ARIZA ÖRÜNTÜLERİ ===
+[örüntü_bloğu]
+
+=== CASCADE RİSKİ ===
+[cascade_bloğu]
+
+=== MEVCUT SERVİS SAĞLIĞI ===
+[servis_sağlık_bloğu]
+
+=== KURAL MOTORU ÖNERİLERİ ===
+[kural_önerileri_bloğu]
+
+Yukarıdaki tüm verileri değerlendirerek:
+1. KRİTİK ve UYARI düzeyinde önceliklendirilmiş öneriler listele.
+2. Her öneri için (a) gözlemlenen sinyal, (b) olası kök neden,
+   (c) önerilen aksiyon adımlarını belirt.
+3. Yanıtı servis bazında grupla: Nova, Keystone, Neutron, Cinder.
+4. Özet bir yönetici notu ile bitir.
+\end{verbatim}
+
+Bu şablon, her çalıştırmada dinamik olarak doldurulmaktadır.
+\texttt{[kapasite\_bloğu]} gibi yer tutucuların yerine \autoref{sec:oneri}'deki bağlam çıkarım fonksiyonunun ürettiği gerçek değerler yerleştirilmektedir.
+Statik ve dinamik bölümlerin bu şekilde ayrıştırılması, şablonun farklı cluster yapılandırmaları ve eşik değerleri için yeniden kullanılabilmesini sağlamaktadır.
+
+\subsection{Öneri Puanlama ve Önceliklendirme}
+
+Kural tabanlı motor her kanal için hem bir uyarı kategorisi (KRİTİK / UYARI) hem de bir öncelik skoru üretmektedir.
+Öncelik skoru üç faktörün ağırlıklı toplamına dayanmaktadır:
+
+\begin{equation}
+    P = w_1 \cdot \text{Aciliyet} + w_2 \cdot \text{Etki} + w_3 \cdot \text{Güven}
+    \label{eq:oncelik}
+\end{equation}
+
+\begin{maddelendir}[label=--]
+    \item \textbf{Aciliyet ($w_1 = 0{,}5$):} Eşim tarihine kalan gün sayısının tersiyle orantılıdır; az gün kalan öneri daha acil puanlanır.
+    \item \textbf{Etki ($w_2 = 0{,}3$):} Etkilenen servis sayısı ve anomali z-skoru büyüklüğüne dayalıdır; cascade olayları en yüksek etki puanını alır.
+    \item \textbf{Güven ($w_3 = 0{,}2$):} Ön-arıza örüntü güven oranı veya z-skor eşiğinin aşılma marjına dayanır.
+\end{maddelendir}
+
+$P > 0{,}7$ olan öneriler KRİTİK, $0{,}4 < P \leq 0{,}7$ olan öneriler UYARI olarak sınıflandırılmaktadır.
+LLM katmanı bu puanlamayı giriş bağlamı olarak alarak kendi yorumunu ekler ve öncelikleri gerekirse yeniden sıralar.
+
+
+\section{Çapraz Doğrulama ve Model Seçim Stratejisi}
+\label{sec:modelseçim}
+
+\subsection{Zamana Göre Bölme (Walk-Forward) Stratejisi}
+
+Zaman serileri için geleneksel $k$-kat çapraz doğrulama veri sızıntısı (data leakage) riskini beraberinde getirir: gelecek veriyle geçmişin öğrenilmesi model performansını gerçekçi olmayan biçimde iyileştirir.
+CloudMon bu riski bertaraf etmek için \textit{zamana göre bölme} stratejisi kullanmaktadır.
+
+Eğitim ve test kümeleri kesişmeyen zaman dilimleriyle tanımlanmaktadır:
+\begin{maddelendir}[label=--]
+    \item \textbf{Eğitim kümesi:} Ocak 2025 -- Mart 2026 (15 ay, 10\,920 saatlik gözlem)
+    \item \textbf{Test kümesi:} Nisan 2026 -- Haziran 2026 (3 ay, 2\,184 saatlik gözlem)
+\end{maddelendir}
+
+Ayrıştırma noktası (2026-04-01) belirlenirken şu ölçütler gözetilmiştir: (i) test kümesinin en az iki tam takvim ayını kapsaması, (ii) eğitim kümesinin model genellemesi için yeterli mevsimsel çeşitliliği içermesi ve (iii) gerçek zamanlı operasyonel koşulların simüle edilebilmesi için test kümesinin yakın geçmişi yansıtması.
+
+\subsection{Model Seçim Kriterleri}
+
+Her (kaynak, ufuk) çifti için model seçimi iki aşamada gerçekleştirilmektedir.
+
+\textbf{Birinci aşama — R\textsuperscript{2} filtresi:} R\textsuperscript{2} $< 0$ olan modeller anlamsız sayılmaktadır.
+Ortalama tahmini bile aşamayan bir model operasyonel kapasite planlaması için kullanılamaz.
+
+\textbf{İkinci aşama — RMSE tiebreaker:} Aynı (kaynak, ufuk) çifti için birden fazla model pozitif R\textsuperscript{2} sergiliyorsa RMSE'si düşük olan tercih edilmektedir.
+RMSE büyük hataları orantısız biçimde cezalandırdığından, kapasite eşimi kritik olan bağlamlarda güvenli karar için uygundur.
+
+Bu iki aşamalı sürecin sonucunda en iyi model tablosu \autoref{tab:en-iyi-model}'de özetlenmektedir.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Her (kaynak, ufuk) çifti için seçilen en iyi model}
+    \label{tab:en-iyi-model}
+    \begin{tabular}{llll}
+        \textbf{Kaynak} & \textbf{Ufuk} & \textbf{En İyi Model} & \textbf{R\textsuperscript{2}} \\
+        \hline
+        vCPU   & 24\,s  & Doğrusal Regresyon & 0{,}9577 \\
+        vCPU   & 72\,s  & Doğrusal Regresyon & 0{,}7728 \\
+        Bellek & 24\,s  & Doğrusal Regresyon & 0{,}7945 \\
+        Bellek & 72\,s  & MLP                & 0{,}3456 \\
+        Disk   & 24\,s  & Doğrusal Regresyon & 0{,}6984 \\
+        Disk   & 72\,s  & MLP                & 0{,}2212 \\
+    \end{tabular}
+\end{table}
+
+Seçim sonuçları iki önemli gözlemi desteklemektedir.
+Birincisi, 24 saatlik ufukta Doğrusal Regresyon tüm kaynaklarda kazanmaktadır; bu durum monoton büyüme trendinin kısa vadeli tahmin için oldukça güçlü bir sinyal olduğunu göstermektedir.
+İkincisi, 72 saatlik ufukta modeller arası fark kapanmakta ve MLP Bellek ile Disk için daha iyi genellemektedir; bu da uzun vadeli tahminde gizli doğrusal olmayan ilişkilerin belirleyici hale geldiğine işaret etmektedir.
+
+
+\section{Sistem Bütünleşimi ve Operasyonel Çıktılar}
+\label{sec:sistem-butun}
+
+\subsection{Pipeline Çalıştırma Akışı}
+
+CloudMon pipeline'ı Python 3.11 ile yazılmış olup \texttt{src/} dizinindeki modüller aracılığıyla organize edilmektedir.
+Sistemin üretim çalışması \autoref{tab:pipeline-modul}'de listelenen altı modülün sıralı yürütülmesiyle gerçekleşmektedir.
+
+\begin{table}[htbp]
+    \centering
+    \caption{CloudMon pipeline modülleri ve sorumlulukları}
+    \label{tab:pipeline-modul}
+    \begin{tabular}{p{3.5cm}p{4.0cm}p{5.5cm}}
+        \textbf{Modül} & \textbf{Kaynak Dosya} & \textbf{Sorumluluk} \\
+        \hline
+        Veri Yükleyici      & \texttt{data\_loader.py}        & CSV okuma, dtype dönüşümü, zaman serisi hizalaması \\
+        Log İşleyici        & \texttt{log\_processor.py}      & Dört aşamalı log analizi, risk skoru, sağlık puanı \\
+        Özellik Üreteci     & \texttt{feature\_engineer.py}   & 272 özellik türetimi, ölçekleme \\
+        Kapasite Tahminleyici & \texttt{capacity\_predictor.py} & 42 model eğitimi, test değerlendirmesi \\
+        SHAP Analizörü      & \texttt{shap\_analyzer.py}      & Açıklayıcı seçimi, atıf hesaplama, görselleştirme \\
+        Öneri Motoru        & \texttt{recommender.py}         & Kural motoru + LLM istem oluşturma + rapor sentezi \\
+    \end{tabular}
+\end{table}
+
+Pipeline, her modülün önceki modülün çıktısına dayandığı sıralı bir bağımlılık grafiği oluşturmaktadır.
+Bu tasarım, herhangi bir modülün bağımsız olarak yeniden çalıştırılmasına ve çıktılarının ara doğrulamaya tabi tutulmasına imkân tanımaktadır.
+
+\subsection{Yapılandırma ve Parametre Yönetimi}
+
+CloudMon'un tüm ayarlanabilir parametreleri \texttt{config.py} dosyasında merkezi olarak tanımlanmaktadır.
+Bu parametreler üç kategoriye ayrılmaktadır:
+
+\begin{maddelendir}[label=--]
+    \item \textbf{Zaman aralığı parametreleri:} \texttt{START\_DATE} (2025-01-01), \texttt{END\_DATE} (2026-07-01) ve \texttt{TRAIN\_END\_DATE} (2026-04-01) değerleri veri bölme sınırlarını belirlemektedir.
+    \item \textbf{Kapasite eşik değerleri:} vCPU için \%90, Bellek için \%88 ve Disk için \%85 olarak yapılandırılmıştır; bu değerler kurumsal SLA gereksinimlerine göre ayarlanabilmektedir.
+    \item \textbf{Model parametreleri:} Tahmin ufukları \texttt{FORECAST\_HORIZONS = [24, 72]}, rastgele tohum \texttt{SEED = 42} ve anomali z-skor eşiği \texttt{ANOMALY\_THRESHOLD = 2{,}5} olarak tanımlıdır.
+\end{maddelendir}
+
+Bu merkezi yapılandırma, sistemin farklı OpenStack cluster yapılandırmaları veya SLA gereksinimlerine sahip ortamlara kolayca uyarlanabilmesini sağlamaktadır.
+
+\subsection{Çıktı Formatı ve Raporlama}
+
+CloudMon her çalışmada üç tür çıktı üretmektedir:
+
+\textbf{Makine tarafından okunabilir çıktılar} (\texttt{output/} dizini altında JSON formatında):
+\begin{maddelendir}[label=--]
+    \item \texttt{capacity\_forecast.json}: Her kaynak için 24 ve 72 saatlik tahmin değerleri, tahmini kapasite dolum tarihleri ve RMSE güven aralıkları.
+    \item \texttt{shap\_features.json}: Her model için ilk 20 özelliğin SHAP değerleri ve global özellik önem sıralaması.
+    \item \texttt{recommendations.json}: Kural motoru uyarıları, öneri puanları ve LLM katmanı çıktısı.
+\end{maddelendir}
+
+\textbf{Görsel çıktılar} (\texttt{figures/} dizini altında PNG formatında):
+SHAP bar grafiği, beeswarm grafiği ve bağımlılık grafiklerinin yanı sıra üç kaynak için zaman serisi tahmin grafikleri ve log anomali görselleştirmeleri üretilmektedir.
+
+\textbf{Operasyonel rapor} (düz metin ya da Markdown formatında):
+Her çalışmanın sonunda \texttt{operational\_report.txt} dosyası oluşturulmaktadır.
+Bu rapor, operatöre yönelik olarak KRİTİK ve UYARI önerilerini, her önerinin gerekçesini (metrik kanıt + log kanıtı + SHAP açıklaması) ve önerilen aksiyon adımlarını içermektedir.
+LLM bileşeni devrede olduğunda raporun sonuna LLM sentez katmanı çıktısı da eklenmektedir.

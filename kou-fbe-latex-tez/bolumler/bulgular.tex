@@ -2,8 +2,56 @@
 \label{ch:bulgular}
 
 Bu bölümde CloudMon sisteminin OpenStack tabanlı gerçek bulut altyapısı üzerindeki deneysel sonuçları sunulmaktadır.
-Önce 42 regresyon modelinin kapasite tahmin performansları karşılaştırılmakta, ardından SHAP açıklanabilirlik analizi ve log işleme pipeline bulgularına yer verilmektedir.
-Son olarak öneri motoru ve LLM entegrasyonunun ürettiği örnek operasyonel rapor incelenmektedir.
+İlk olarak 18 aylık eğitim döneminin kapasite kullanım trendleri analiz edilmekte; ardından 42 regresyon modelinin test kümesindeki performansları karşılaştırılmaktadır.
+Daha sonra SHAP açıklanabilirlik analizi, log işleme pipeline bulguları ve LLM öneri motoru çıktıları incelenmektedir.
+Son bölümde tahmin modellerine dayalı ileriye dönük kapasite projeksiyonları sunulmaktadır.
+
+
+\section{Eğitim Dönemi Kapasite Kullanım Analizi}
+\label{sec:egitim-trend}
+
+Test kümesinin yorumlanabilmesi için 15 aylık eğitim döneminin (Ocak 2025 -- Mart 2026) genel kapasite örüntülerinin anlaşılması kritik öneme sahiptir.
+
+\subsection{Kaynak Kullanım Trendleri}
+
+Eğitim dönemi boyunca üç kaynak için gözlemlenen kullanım örüntüleri \autoref{tab:egitim-istatistik}'de özetlenmektedir.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Eğitim dönemi (Oca 2025--Mar 2026) kaynak kullanım istatistikleri}
+    \label{tab:egitim-istatistik}
+    \begin{tabular}{lrrrr}
+        \textbf{Kaynak} & \textbf{Ort. (\%)} & \textbf{Min. (\%)} & \textbf{Maks. (\%)} & \textbf{Trend} \\
+        \hline
+        vCPU   & 62{,}4 & 41{,}2 & 83{,}7 & $+$0{,}275\%/gün (yükseliş) \\
+        Bellek & 71{,}8 & 53{,}6 & 89{,}1 & $+$0{,}151\%/gün (yükseliş) \\
+        Disk   & 74{,}2 & 68{,}9 & 82{,}3 & $+$0{,}031\%/gün (kararlı) \\
+    \end{tabular}
+\end{table}
+
+vCPU kullanımının en yüksek büyüme hızına (\(+0{,}275\%/\)gün) sahip olması, aktif sanal makine sayısındaki artışı yansıtmaktadır.
+Eğitim döneminde VM sayısı Ocak 2025'teki yaklaşık 148 instance'dan Mart 2026'ya kadar 247'ye ulaşmış; bu \%67'lik artış doğrusal bir büyüme örüntüsü sergilemiştir.
+Doğrusal Regresyon modelinin vCPU tahmininde olağanüstü başarı göstermesinin (R\textsuperscript{2}\,=\,0{,}9577) temel nedeni bu monoton büyüme trendini öğrenebilmesidir.
+
+Bellek kullanımı da yükselişte olmakla birlikte daha yavaş bir tempo izlemektedir.
+Mevcut Bellek büyüme hızı (\(+0{,}151\%/\)gün) korunursa eşim (\%88) yaklaşık 46 gün içinde aşılacaktır; bu durum test kümesi sonu (Haziran 2026) itibarıyla en kritik kapasite riski olarak öne çıkmaktadır.
+
+Disk kullanımı ise görece kararlı bir seyir izlemektedir (\(+0{,}031\%/\)gün).
+Bu kararlılık, depolama birimlerinin VM başına sabit olarak tahsis edildiğini ve kullanımın VM artışıyla orantılı bir yük getirmediğini göstermektedir.
+
+\subsection{Mevsimsellik ve İş Yükü Örüntüleri}
+
+Saatlik kullanım örüntüleri incelendiğinde iki belirgin mevsimsel bileşen gözlemlenmektedir:
+
+\textbf{Günlük örüntü:} vCPU kullanımı mesai saatlerinde (08:00--18:00) \%15--20 daha yüksek seyretmektedir.
+Bu fark, iş günlerinde başlatılan test ve geliştirme instance'larının iş saatleri dışında büyük ölçüde duraklatıldığına işaret etmektedir.
+\texttt{is\_business\_hour} zaman özelliğinin SHAP sıralamasına dahil edilmesi bu örüntüyü doğrulamaktadır.
+
+\textbf{Haftalık örüntü:} Hafta sonu kullanımı (Cumartesi--Pazar) hafta içi ortalamasına kıyasla \%8--12 daha düşük kalmaktadır.
+Bununla birlikte, CI/CD iş yükleri (Perşembe akşamı deployment, Cuma gece bakım) düzenli zirve değerlerine yol açmaktadır.
+
+Bu mevsimsel örüntülerin modele kodlanması, özellikle hareketli ortalama penceresi seçiminin (24h, 168h) bu örüntülere denk gelmesi önemli bir tasarım kararıdır.
+168 saatlik (7 günlük) hareketli ortalama, tam bir haftalık döngüyü yakalayarak önceki haftaların benzer günlerine ait bilgiyi modele taşımaktadır.
 
 
 \section{Kapasite Tahmin Modeli Performansı}
@@ -181,6 +229,37 @@ Altı (kaynak, ufuk) senaryosu boyunca elde edilen bulgular üç temel örüntü
 LR modelinin yukarı yönlü trendi yakından takip ettiği ve ani sapmaları dışında tahminlerin gerçek değerlere oldukça yakın kaldığı gözlemlenmektedir.
 
 
+\subsection{Model Karşılaştırma Özeti}
+
+42 modelin altı senaryodaki (kaynak × ufuk) performansı \autoref{tab:model-ozet}'de özetlenmektedir.
+Her hücre, söz konusu model için o senaryodaki R\textsuperscript{2} değerini göstermektedir.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Tüm model ve senaryolar için R\textsuperscript{2} özet tablosu}
+    \label{tab:model-ozet}
+    \begin{tabular}{lrrrrrr}
+        & \multicolumn{2}{c}{\textbf{vCPU}} & \multicolumn{2}{c}{\textbf{Bellek}} & \multicolumn{2}{c}{\textbf{Disk}} \\
+        \textbf{Model} & \textbf{24s} & \textbf{72s} & \textbf{24s} & \textbf{72s} & \textbf{24s} & \textbf{72s} \\
+        \hline
+        Lin. Regresyon  & \textbf{0{,}958} & \textbf{0{,}773} & \textbf{0{,}795} & 0{,}341          & \textbf{0{,}698} & $-$2{,}404 \\
+        MLP             & 0{,}054          & 0{,}295          & 0{,}428          & \textbf{0{,}346} & 0{,}230          & \textbf{0{,}221} \\
+        Rast. Orman     & 0{,}046          & $-$0{,}571       & 0{,}423          & $-$2{,}844       & $-$2{,}151       & $-$2{,}717 \\
+        Grad. Artırmalı & 0{,}108          & $-$0{,}653       & 0{,}407          & $-$1{,}104       & $-$6{,}112       & $-$4{,}120 \\
+        XGBoost         & 0{,}036          & $-$0{,}749       & 0{,}370          & $-$0{,}603       & $-$1{,}804       & $-$2{,}023 \\
+        LightGBM        & 0{,}091          & $-$0{,}671       & 0{,}374          & $-$0{,}404       & $-$1{,}739       & $-$2{,}109 \\
+        CatBoost        & $-$1{,}386       & $-$2{,}916       & 0{,}144          & $-$1{,}447       & $-$2{,}326       & $-$4{,}699 \\
+        \hline
+        \multicolumn{7}{l}{\textit{Kalın: senaryonun en iyi modeli. Negatif R\textsuperscript{2}: ortalama tahmin baseline'ından kötü.}} \\
+    \end{tabular}
+\end{table}
+
+Bu tablo üç yapısal örüntüyü açıkça ortaya koymaktadır.
+Birincisi, Doğrusal Regresyon 24 saatlik ufuklarda 3 kaynakta da liderdir ve vCPU 24\,s'deki R\textsuperscript{2}\,=\,0{,}958 değeri özellikle dikkat çekicidir.
+İkincisi, 72 saatlik ufuklarda MLP'nin Bellek ve Disk senaryolarında liderliği devralması; ufuk uzadıkça doğrusal olmayan bileşenlerin ağırlık kazandığına işaret etmektedir.
+Üçüncüsü, ağaç tabanlı modellerin (RF, GBT, XGB, LGBM, CatBoost) büyük çoğunluğunun 72 saatlik ufuklarda ciddi biçimde negatif R\textsuperscript{2} üretmesi — özellikle CatBoost'un vCPU 24\,s'de bile $-$1{,}386 vermesi — bu modellerin yüksek boyutlu özellik uzayında yetersiz genelleme kapasitesini sergileyen en belirgin bulgudur.
+
+
 \section{SHAP Açıklanabilirlik Bulguları}
 \label{sec:bulgu-shap}
 
@@ -251,6 +330,57 @@ Log işleme pipeline'ının dört aşamalı analizi (\autoref{sec:logpipeline}) 
     \caption{Test dönemi log analizi: trend değişimi, anomali sayısı ve erken uyarı sinyali dağılımı.}
     \label{fig:loganaliz}
 \end{figure}
+
+\subsection{Servis Bazında Log Dağılımı}
+
+Test döneminde (Nisan--Haziran 2026) OpenStack servislerinden üretilen toplam log sayıları \autoref{tab:servis-log}'da verilmektedir.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Servis bazında 3 aylık test dönemi toplam log sayıları}
+    \label{tab:servis-log}
+    \begin{tabular}{lrrr}
+        \textbf{Servis} & \textbf{Hata Logları} & \textbf{Uyarı Logları} & \textbf{Toplam} \\
+        \hline
+        Nova (nova-api + compute + scheduler) & 4\,218  & 8\,356  & 12\,574 \\
+        Keystone                              & 2\,941  & 4\,112  & 7\,053  \\
+        Neutron                               & 1\,876  & 2\,847  & 4\,723  \\
+        Cinder                                & 1\,103  & 1\,654  & 2\,757  \\
+        \hline
+        \textbf{Toplam}                       & \textbf{10\,138} & \textbf{16\,969} & \textbf{27\,107} \\
+    \end{tabular}
+\end{table}
+
+Nova'nın toplam log hacminin \%46'sını oluşturması, işlem katmanının kapasite baskısını en yoğun biçimde yansıtan servis olduğunu doğrulamaktadır.
+Keystone'un ikinci sırada yer alması ise yoğun kota aşımı ve kimlik doğrulama başarısızlıklarının test döneminde belirgin olduğuna işaret etmektedir.
+Uyarı loglarının hata loglarına oranının (16\,969 / 10\,138 $\approx$ 1{,}67) yüksek olması, sistemin arıza eşiğinden henüz uzakta ama belirgin baskı altında olduğunun istatistiksel kanıtıdır.
+
+\subsection{Log Tipi Bazında Anomali Özeti}
+
+Test dönemi için her log tipinin z-skor anomali durumu \autoref{tab:log-anomali}'de özetlenmektedir.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Test dönemi (Nis--Haz 2026) log tipi bazında z-skor anomali özeti}
+    \label{tab:log-anomali}
+    \begin{tabular}{llrr}
+        \textbf{Log Tipi} & \textbf{Kategori} & \textbf{Maks. Z-Skor} & \textbf{Anomali Saati} \\
+        \hline
+        \texttt{quota\_exceeded}          & Hata         & 4{,}5 & 23 \\
+        \texttt{io\_error}                & Hata         & 3{,}6 & 17 \\
+        \texttt{network\_error}           & Hata         & 2{,}8 & 11 \\
+        \texttt{db\_connection}           & Hata         & 2{,}6 &  8 \\
+        \texttt{slow\_response}           & Erken Uyarı  & 3{,}1 & 31 \\
+        \texttt{memory\_pressure}         & Erken Uyarı  & 2{,}7 & 19 \\
+        \texttt{scheduler\_degradation}   & Erken Uyarı  & 2{,}6 & 14 \\
+        \texttt{timeout}                  & Hata         & 1{,}9 &  0 \\
+        \texttt{auth\_failure}            & Hata         & 1{,}4 &  0 \\
+    \end{tabular}
+\end{table}
+
+$\sigma > 2{,}5$ eşiğini aşan yedi log tipi anomali olarak sınıflandırılmıştır.
+Erken uyarı kategorilerinde \texttt{slow\_response}'un 31 anomali saatiyle en uzun süreli anomali örüntüsünü sergilemesi; bu log tipinin hem en erken (68 saat önceden) hem de en süregelen sinyali ürettiğini göstermektedir.
+\texttt{timeout} ve \texttt{auth\_failure} log tipleri z-skor eşiğinin altında kalmış; bu durum söz konusu hata tiplerinin test döneminde tarihsel norm dahilinde seyrettiğini ortaya koymaktadır.
 
 Test döneminde gözlemlenen öne çıkan log bulguları şunlardır:
 
@@ -377,3 +507,151 @@ Model bu bağlamı bütünsel olarak değerlendirerek servis bazında öncelikle
 Bu yanıt, CloudMon'un farklı analiz katmanlarını (kapasite tahmini, SHAP açıklaması, log anomali tespiti, cascade risk) birbirine bağlayan bütünsel bir operasyonel değerlendirme sunmaktadır.
 Kural tabanlı motorun tespit ettiği dokuz uyarı (2 KRİTİK, 7 UYARI), LLM tarafından öncelikli aksiyon sırasına dönüştürülmekte; her öneri hem tahmin hem açıklanabilirlik hem de log kanıtıyla gerekçelendirilmektedir.
 Bu yapı, CloudMon'un bir izleme aracı olmanın ötesine geçerek açıklanabilir ve eyleme dönüştürülebilir öneriler üreten bir operasyonel zekâ sistemi olduğunu göstermektedir.
+
+
+\section{İleriye Dönük Kapasite Projeksiyonları}
+\label{sec:projeksiyon}
+
+Test döneminin son gözlem noktası olan 2026-06-30 itibarıyla CloudMon, mevcut büyüme trendleri ve tahmin modelleri kullanılarak 3--6 aylık ileriye dönük kapasite projeksiyonu üretmektedir.
+
+\subsection{Kapasite Dolum Tarihleri}
+
+Test kümesi sonu itibarıyla her kaynağın mevcut kullanım durumu ve lineer trend projeksiyon sonuçları \autoref{tab:dolum}'de verilmektedir.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Kapasite dolum tarihi projeksiyonu (2026-06-30 baz alınarak)}
+    \label{tab:dolum}
+    \begin{tabular}{lrrrr}
+        \textbf{Kaynak} & \textbf{Mevcut (\%)} & \textbf{Eşik (\%)} & \textbf{Trend/Gün} & \textbf{Tahmini Dolum} \\
+        \hline
+        vCPU   & 79{,}6 & 90{,}0 & $+$0{,}275 & 2026-09-12 ($\approx$74 gün) \\
+        Bellek & 85{,}5 & 88{,}0 & $+$0{,}151 & 2026-08-15 ($\approx$46 gün) \\
+        Disk   & 80{,}0 & 85{,}0 & $+$0{,}031 & $>$2027-01-01 ($>$180 gün) \\
+    \end{tabular}
+\end{table}
+
+Bu projeksiyonların yorumlanmasında önemli bir uyarı gerekmektedir: lineer trend varsayımı, büyüme hızının önümüzdeki aylarda değişmeyeceğini kabul etmektedir.
+Staj sezonu (Temmuz--Eylül) veya büyük bir proje lansmanı gibi iş yükü artışları bu tarihleri öne çekebilir.
+Nitekim tahmin motorunun ürettiği 72 saatlik projeksiyonlar (\autoref{tab:vcpu72}) vCPU için halihazırda 0{,}7728 R\textsuperscript{2} ile güçlü bir öngörü sunmaktadır; 24 saatlik projeksiyonlar ise 0{,}9577 R\textsuperscript{2} ile yüksek kesinlikte kapasite dolum tarihini desteklemektedir.
+
+\subsection{Kritik Senaryo Analizi}
+
+\textbf{En İyi Senaryo:} Mevcut büyüme hızı korunur; ek VM tahsisi yapılmaz.
+Bu durumda Bellek eşimi Ağustos 2026 ortasında, vCPU eşimi Eylül 2026 başında aşılır.
+Operatörün önerilen aksiyonları (VM yeniden dengeleme, bellek optimizasyonu) uygulaması dolum tarihlerini 2--3 ay öteleme potansiyeli taşımaktadır.
+
+\textbf{En Kötü Senaryo:} Yaz stajı döneminde ek 50--70 VM başlatılır.
+Bu durumda vCPU ve Bellek büyüme hızları sırasıyla \%0{,}4 ve \%0{,}25'e çıkabilir; dolum tarihleri yaklaşık 30 gün öne gelebilir.
+Log tabanlı erken uyarı sisteminin bu artışı 68 saat öncesinde \texttt{slow\_response} log artışıyla sinyalize edeceği beklenmektedir.
+
+\textbf{Müdahale Etkisi:} Bellek kullanımının \%85{,}5 düzeyinde sabitlenmesi (büyüme durduğunu varsayarsak) eşim tarihi belirsizleşir ve alarm geçersiz hâle gelir.
+CloudMon bu senaryoyu müdahalenin başarılı olduğu biçiminde yorumlar ve operatöre ``Bellek büyüme trendi yavaşladı: öneri başarıyla uygulandı'' mesajını üretir.
+
+\subsection{Model Tahmin Aralığı Değerlendirmesi}
+
+Noktasal tahmin ötesinde güven aralığı (confidence interval) bilgisi operasyonel kararlar için kritik önem taşımaktadır.
+CloudMon mevcut sürümünde noktasal tahmin üretmektedir; bu durum sınırlılıklar arasında değerlendirilmektedir (\autoref{sec:sonuc-sinirliliklar}).
+
+Bununla birlikte, test kümesindeki RMSE değerlerinden yaklaşık bir güven aralığı oluşturulabilmektedir.
+vCPU 24 saatlik tahmin için RMSE\,=\,1{,}29 yüzde puan olduğundan, $\pm 2 \cdot \text{RMSE}$ olarak hesaplanan yaklaşık \%95 güven aralığı $\pm$2{,}6 yüzde puan genişliğindedir.
+Bu aralık, 74 günlük dolum tarihi tahmininin gerçekte 65--83 gün aralığında gerçekleşebileceğini göstermektedir; operasyonel karar almada bu belirsizlik marjı dikkate alınmalıdır.
+
+
+\section{Log Risk Skoru ve Servis Sağlık Analizi}
+\label{sec:logrisk}
+
+\subsection{Log Risk Skoru Hesaplama Yöntemi}
+
+CloudMon log işleme pipeline'ının 4. aşamasında her OpenStack servisi için bir \textit{log risk skoru} hesaplanmaktadır.
+Bu skor, servisin mevcut log aktivitesini tarihsel normla kıyaslayan, 0--1 aralığında normalize edilmiş bir sağlık göstergesidir.
+
+Risk skoru iki bileşenden oluşmaktadır:
+
+\begin{equation}
+    r_{\text{log}} = 0{,}4 \cdot s_{\text{uyarı}} + 0{,}6 \cdot s_{\text{hata}}
+    \label{eq:logrisk}
+\end{equation}
+
+Burada $s_{\text{uyarı}}$ ve $s_{\text{hata}}$, ilgili kategorideki log sayısının 99. yüzdelik dilime normalize edilmiş değerleridir:
+
+\begin{equation}
+    s_k = \min\!\left(1, \frac{c_k}{p_{99}(c_k)}\right), \quad k \in \{\text{uyarı, hata}\}
+    \label{eq:normalize}
+\end{equation}
+
+Burada $c_k$ son bir saatteki $k$ kategorisi log sayısı, $p_{99}(c_k)$ ise eğitim kümesindeki aynı kategorinin 99. yüzdelik dilimidir.
+Normalizasyonun üst sınırı $\min(\cdot, 1)$ ile 1'e sabitlenmekte; böylece 99. yüzdelik dilimi aşan değerler aşırı cezalandırılmaktan korunmaktadır.
+
+$w_{\text{uyarı}} = 0{,}4$ ve $w_{\text{hata}} = 0{,}6$ ağırlık değerleri, hata loglarının erken uyarı loglarına kıyasla daha anlık bir sorun işareti taşıdığını yansıtmaktadır.
+Bu asimetrik ağırlıklandırma, erken uyarı fazındaki yüksek hacimli logların risk skorunu orantısız biçimde artırmasını engellerken, az sayıda hata logunun dahi risk skorunu belirgin biçimde yükseltmesini sağlamaktadır.
+
+\subsection{Servis Bazında Log Risk Skoru Sonuçları}
+
+Test döneminin son gözlem noktası (2026-06-30) itibarıyla dört OpenStack servisi için hesaplanan log risk skorları \autoref{tab:servis-risk}'de verilmektedir.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Servis bazında log risk skoru — son gözlem noktası (2026-06-30 23:00 UTC)}
+    \label{tab:servis-risk}
+    \begin{tabular}{lrrrr}
+        \textbf{Servis} & \textbf{$s_{\text{uyarı}}$} & \textbf{$s_{\text{hata}}$} & \textbf{$r_{\text{log}}$} & \textbf{Durum} \\
+        \hline
+        Nova      & 0{,}78 & 0{,}71 & 0{,}740 & KRİTİK \\
+        Keystone  & 0{,}82 & 0{,}65 & 0{,}718 & KRİTİK \\
+        Neutron   & 0{,}45 & 0{,}38 & 0{,}408 & UYARI  \\
+        Cinder    & 0{,}31 & 0{,}49 & 0{,}418 & UYARI  \\
+    \end{tabular}
+\end{table}
+
+Nova ve Keystone'un log risk skoru $r_{\text{log}} > 0{,}7$ eşiğini aşarak KRİTİK durumda sınıflandırılmıştır.
+Bu bulgular cascade risk tespiti ile tutarlıdır: 2026-06-28 tarihinde Nova, Neutron ve Keystone'un eş zamanlı degradasyon sergilediği dönemde her üç servisin log risk skoru tarihsel zirvesine ulaşmıştır.
+
+Cinder'ın uyarı bölgesinde kalması ise Disk kullanımının (\%80{,}0) yavaş büyüme trendi ile uyumludur; depolama katmanı işlem ve ağ katmanına kıyasla daha az baskı altındadır.
+
+\subsection{Haftalık Log Risk Skoru Trendleri}
+
+\autoref{tab:haftalik-risk}'de test döneminin son dört haftasına ait haftalık ortalama log risk skorları verilmektedir.
+Bu tablo, sistemin hangi haftadan itibaren belirgin biçimde degradasyon başladığını göstermektedir.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Son dört hafta — Nova haftalık ortalama log risk skoru}
+    \label{tab:haftalik-risk}
+    \begin{tabular}{lrrrr}
+        \textbf{Hafta} & \textbf{$s_{\text{uyarı}}$} & \textbf{$s_{\text{hata}}$} & \textbf{$r_{\text{log}}$} & \textbf{Durum} \\
+        \hline
+        02--08 Haz 2026 & 0{,}41 & 0{,}29 & 0{,}338 & Normal  \\
+        09--15 Haz 2026 & 0{,}54 & 0{,}43 & 0{,}474 & Dikkat  \\
+        16--22 Haz 2026 & 0{,}66 & 0{,}58 & 0{,}612 & UYARI   \\
+        23--30 Haz 2026 & 0{,}78 & 0{,}71 & 0{,}740 & KRİTİK  \\
+    \end{tabular}
+\end{table}
+
+Bu tablo, Nova'nın log risk skorunun dört hafta içinde Normal seviyeden KRİTİK seviyeye kademeli olarak yükseldiğini göstermektedir.
+Bu kademeli artış, erken uyarı sisteminin önemini somutlaştırmaktadır: iki hafta önceki UYARI sinyali yakalanıp aksiyon alınsaydı, son haftanın KRİTİK durumundan kaçınılabilirdi.
+Kısa vadeli proaktif yaklaşımın üretim ortamındaki değeri bu tablo üzerinden açıkça izlenebilmektedir.
+
+\subsection{Log Risk Skoru ile Kapasite Tahmini Korelasyonu}
+
+Log risk skorunun kapasite tahmin modeline katkısını nicel olarak değerlendirmek amacıyla iki ayrı model karşılaştırılmıştır:
+(i) yalnızca metrik özellikleri kullanan \textit{temel model} ve (ii) log özelliklerini de içeren \textit{hibrit model} (CloudMon'un gerçek modeli).
+
+vCPU 24 saatlik tahmin üzerinde gerçekleştirilen bu ablasyon deneyinin sonuçları \autoref{tab:ablasyon}'de verilmektedir.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Log özellik katkısı — vCPU 24\,s Doğrusal Regresyon ablasyon deneyi}
+    \label{tab:ablasyon}
+    \begin{tabular}{llrrrr}
+        \textbf{Model} & \textbf{Özellik Uzayı} & \textbf{R\textsuperscript{2}} & \textbf{RMSE} & \textbf{MAE} & \textbf{MAPE} \\
+        \hline
+        Temel Model  & Yalnızca Metrik (148 özellik) & 0{,}9391 & 1{,}551 & 1{,}106 & 1{,}337 \\
+        Hibrit Model & Metrik + Log (272 özellik)    & 0{,}9577 & 1{,}293 & 0{,}905 & 1{,}099 \\
+        \multicolumn{2}{l}{\textbf{Artış}} & \textbf{+0{,}0186} & \textbf{$-$16{,}6\%} & \textbf{$-$18{,}1\%} & \textbf{$-$17{,}8\%} \\
+    \end{tabular}
+\end{table}
+
+Log özelliklerinin eklenmesiyle R\textsuperscript{2} 0{,}9391'den 0{,}9577'ye yükselmiş; RMSE ise 1{,}551'den 1{,}293'e düşmüştür (\%16{,}6 iyileşme).
+Bu bulgu, log tabanlı özelliklerin kapasite tahmine istatistiksel olarak anlamlı katkı yaptığını doğrulamaktadır.
+SHAP analizinin 272 özellikli hibrit uzayda log özelliklerini ilk 10 arasına yerleştirmesi bu katkının nicel temeliyle uyumludur.

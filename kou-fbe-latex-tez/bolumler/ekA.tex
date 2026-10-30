@@ -1,4 +1,183 @@
 \begin{ekler}
-	\label{ch:ekA}
-	% Ek içeriği (ek şekiller, tablolar, kod vb.) gerektiğinde buraya eklenecektir.
+\label{ch:ekA}
+
+\section*{Ek A: Log Tipi Tanımları ve Kaynak Eşleşmeleri}
+
+\autoref{tab:ek-logtipleri}'de CloudMon'un izlediği 15 log tipinin tam tanımları, kaynak servisleri ve ön-arıza analizi sonuçları verilmektedir.
+
+\begin{table}[htbp]
+    \centering
+    \caption{CloudMon log tipi kataloğu — tam tanımlar ve kaynak servisler}
+    \label{tab:ek-logtipleri}
+    \begin{tabular}{p{4.2cm}p{2.8cm}p{6.2cm}}
+        \textbf{Log Tipi} & \textbf{Kaynak Servis} & \textbf{Tetiklenme Koşulu} \\
+        \hline
+        \multicolumn{3}{l}{\textit{Hata Logları (8 tip)}} \\
+        \hline
+        \texttt{timeout\_count}              & Nova, Neutron, Cinder  & API isteği yapılandırılmış süreyi (varsayılan 60\,s) aşar \\
+        \texttt{db\_connection\_count}        & Nova, Keystone, Cinder & Veritabanı bağlantısı kurulamaz veya bağlantı havuzu tükenir \\
+        \texttt{resource\_exhausted\_count}   & Nova                   & vCPU veya bellek kotası aşıldığında instance başlatılamaz \\
+        \texttt{quota\_exceeded\_count}       & Keystone, Nova         & Proje bazındaki kaynak kotası aşılır \\
+        \texttt{auth\_failure\_count}         & Keystone               & Token doğrulama veya kullanıcı kimlik doğrulama başarısız olur \\
+        \texttt{network\_error\_count}        & Neutron                & Sanal ağ yönlendirme veya güvenlik grubu uygulamasında hata oluşur \\
+        \texttt{scheduler\_error\_count}      & Nova (scheduler)       & Hiçbir compute node mevcut isteği karşılayamaz \\
+        \texttt{io\_error\_count}             & Cinder, Nova           & Blok depolama biriminde okuma/yazma hatası oluşur \\
+        \hline
+        \multicolumn{3}{l}{\textit{Erken Uyarı Logları (7 tip)}} \\
+        \hline
+        \texttt{slow\_response\_count}        & Nova-API, Keystone     & API yanıt süresi normal değerin 3 katını aşar (uyarı seviyesi) \\
+        \texttt{memory\_pressure\_count}      & Nova-compute           & Compute node belleği \%80 dolarken soft limit uyarısı üretilir \\
+        \texttt{connection\_pool\_warn\_count} & Nova, Neutron, Cinder  & DB bağlantı havuzu doluluk oranı \%85'i aşar \\
+        \texttt{scheduler\_degradation\_count}& Nova (scheduler)       & Zamanlayıcı karar süresi beklenenden \%50 daha uzun sürer \\
+        \texttt{quota\_pressure\_count}       & Keystone               & Proje kotasının \%90'ı kullanıldığında baskı uyarısı üretilir \\
+        \texttt{disk\_io\_degradation\_count} & Cinder                 & Disk I/O gecikmesi normal değerin 2 katına çıkar \\
+        \texttt{cascade\_indicator\_count}    & Tüm servisler          & Birden fazla servis aynı anda degradasyon yaşar \\
+    \end{tabular}
+\end{table}
+
+
+\section*{Ek B: Tam Model Performans Tabloları}
+
+\autoref{tab:ek-tam}'de 42 modelin tüm dört metrik üzerindeki tam sonuçları verilmektedir. Her tablo ayrı bir (kaynak, ufuk) senaryosuna karşılık gelmektedir.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Tam model karşılaştırma — vCPU 24\,s (tekrar, tam metrik)}
+    \label{tab:ek-tam}
+    \begin{tabular}{lrrrr}
+        \textbf{Model} & \textbf{R\textsuperscript{2}} & \textbf{RMSE} & \textbf{MAE} & \textbf{MAPE} \\
+        \hline
+        Lin. Regresyon  & 0{,}9577 & 1{,}293  & 0{,}905 & 1{,}099 \\
+        Grad. Artırmalı & 0{,}1079 & 5{,}938  & 4{,}304 & 5{,}017 \\
+        LightGBM        & 0{,}0906 & 5{,}995  & 4{,}291 & 4{,}992 \\
+        MLP             & 0{,}0544 & 6{,}113  & 4{,}328 & 5{,}234 \\
+        Rast. Orman     & 0{,}0456 & 6{,}142  & 4{,}496 & 5{,}249 \\
+        XGBoost         & 0{,}0355 & 6{,}174  & 4{,}482 & 5{,}225 \\
+        CatBoost        & $-$1{,}386 & 9{,}710 & 7{,}852 & 9{,}297 \\
+    \end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+    \centering
+    \caption{Tam model karşılaştırma — vCPU 72\,s}
+    \begin{tabular}{lrrrr}
+        \textbf{Model} & \textbf{R\textsuperscript{2}} & \textbf{RMSE} & \textbf{MAE} & \textbf{MAPE} \\
+        \hline
+        Lin. Regresyon  & 0{,}7728  & 2{,}951  & 1{,}865 & 2{,}222  \\
+        MLP             & 0{,}2946  & 5{,}199  & 3{,}780 & 4{,}644  \\
+        Rast. Orman     & $-$0{,}571 & 7{,}758 & 6{,}128 & 7{,}219  \\
+        Grad. Artırmalı & $-$0{,}653 & 7{,}960 & 6{,}473 & 7{,}665  \\
+        LightGBM        & $-$0{,}671 & 8{,}002 & 6{,}522 & 7{,}728  \\
+        XGBoost         & $-$0{,}749 & 8{,}187 & 6{,}749 & 8{,}008  \\
+        CatBoost        & $-$2{,}916 & 12{,}250 & 10{,}739 & 12{,}859 \\
+    \end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+    \centering
+    \caption{Tam model karşılaştırma — Bellek 24\,s}
+    \begin{tabular}{lrrrr}
+        \textbf{Model} & \textbf{R\textsuperscript{2}} & \textbf{RMSE} & \textbf{MAE} & \textbf{MAPE} \\
+        \hline
+        Lin. Regresyon  & 0{,}7945  & 3{,}382  & 2{,}125 & 2{,}374  \\
+        MLP             & 0{,}4276  & 5{,}645  & 4{,}023 & 4{,}557  \\
+        Rast. Orman     & 0{,}4234  & 5{,}666  & 4{,}384 & 4{,}810  \\
+        Grad. Artırmalı & 0{,}4067  & 5{,}747  & 4{,}414 & 4{,}838  \\
+        LightGBM        & 0{,}3740  & 5{,}903  & 4{,}428 & 4{,}834  \\
+        XGBoost         & 0{,}3697  & 5{,}923  & 4{,}519 & 4{,}945  \\
+        CatBoost        & 0{,}1439  & 6{,}903  & 5{,}191 & 5{,}666  \\
+    \end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+    \centering
+    \caption{Tam model karşılaştırma — Bellek 72\,s}
+    \begin{tabular}{lrrrr}
+        \textbf{Model} & \textbf{R\textsuperscript{2}} & \textbf{RMSE} & \textbf{MAE} & \textbf{MAPE} \\
+        \hline
+        MLP             & 0{,}3456   & 5{,}931  & 3{,}817  & 4{,}352  \\
+        Lin. Regresyon  & 0{,}3414   & 5{,}950  & 4{,}352  & 4{,}941  \\
+        LightGBM        & $-$0{,}404  & 8{,}686 & 7{,}149  & 7{,}910  \\
+        XGBoost         & $-$0{,}603  & 9{,}283 & 7{,}691  & 8{,}518  \\
+        Grad. Artırmalı & $-$1{,}104  & 10{,}635 & 8{,}906 & 9{,}865  \\
+        CatBoost        & $-$1{,}447  & 11{,}468 & 9{,}853 & 10{,}976 \\
+        Rast. Orman     & $-$2{,}844  & 14{,}375 & 12{,}281 & 13{,}662 \\
+    \end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+    \centering
+    \caption{Tam model karşılaştırma — Disk 24\,s}
+    \begin{tabular}{lrrrr}
+        \textbf{Model} & \textbf{R\textsuperscript{2}} & \textbf{RMSE} & \textbf{MAE} & \textbf{MAPE} \\
+        \hline
+        Lin. Regresyon  & 0{,}6984   & 2{,}769  & 1{,}679  & 2{,}069  \\
+        MLP             & 0{,}2301   & 4{,}425  & 3{,}298  & 4{,}057  \\
+        LightGBM        & $-$1{,}739  & 8{,}346 & 6{,}763  & 8{,}186  \\
+        XGBoost         & $-$1{,}804  & 8{,}444 & 6{,}835  & 8{,}270  \\
+        Rast. Orman     & $-$2{,}151  & 8{,}952 & 7{,}310  & 8{,}856  \\
+        CatBoost        & $-$2{,}326  & 9{,}197 & 7{,}675  & 9{,}342  \\
+        Grad. Artırmalı & $-$6{,}112  & 13{,}449 & 11{,}199 & 13{,}624 \\
+    \end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+    \centering
+    \caption{Tam model karşılaştırma — Disk 72\,s}
+    \begin{tabular}{lrrrr}
+        \textbf{Model} & \textbf{R\textsuperscript{2}} & \textbf{RMSE} & \textbf{MAE} & \textbf{MAPE} \\
+        \hline
+        MLP             & 0{,}2212   & 4{,}361  & 3{,}137  & 3{,}839  \\
+        XGBoost         & $-$2{,}023  & 8{,}591 & 7{,}165  & 8{,}698  \\
+        LightGBM        & $-$2{,}109  & 8{,}712 & 7{,}289  & 8{,}850  \\
+        Lin. Regresyon  & $-$2{,}404  & 9{,}116 & 5{,}301  & 6{,}541  \\
+        Rast. Orman     & $-$2{,}717  & 9{,}526 & 8{,}194  & 9{,}986  \\
+        Grad. Artırmalı & $-$4{,}120  & 11{,}180 & 9{,}471 & 11{,}550 \\
+        CatBoost        & $-$4{,}699  & 11{,}796 & 10{,}665 & 13{,}103 \\
+    \end{tabular}
+\end{table}
+
+
+\section*{Ek C: SHAP Özellik Önem Tabloları — Bellek ve Disk Modelleri}
+
+\begin{table}[htbp]
+    \centering
+    \caption{Bellek 24\,s LR modeli için SHAP özellik önemleri (ilk 10 özellik, ortalama $|\phi_i|$)}
+    \label{tab:ek-shap-mem}
+    \begin{tabular}{rlr}
+        \textbf{Sıra} & \textbf{Özellik} & \textbf{Ortalama $|\phi_i|$} \\
+        \hline
+        1  & \texttt{vm\_count\_rmean\_24h}                   & 10\,871 \\
+        2  & \texttt{total\_errors\_rsum\_72h}                &  6\,659 \\
+        3  & \texttt{vm\_count\_rmean\_12h}                   &  4\,213 \\
+        4  & \texttt{memory\_usage\_percent\_rmean\_24h}      &  3\,887 \\
+        5  & \texttt{connection\_pool\_warn\_count\_rsum\_72h} & 2\,944 \\
+        6  & \texttt{vm\_count\_rmean\_6h}                    &  2\,611 \\
+        7  & \texttt{memory\_pressure\_count\_rsum\_72h}      &  2\,103 \\
+        8  & \texttt{memory\_usage\_percent\_rmean\_12h}      &  1\,876 \\
+        9  & \texttt{quota\_exceeded\_count\_rsum\_72h}       &  1\,542 \\
+        10 & \texttt{vm\_count\_rmean\_168h}                  &  1\,398 \\
+    \end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+    \centering
+    \caption{Disk 24\,s LR modeli için SHAP özellik önemleri (ilk 10 özellik, ortalama $|\phi_i|$)}
+    \label{tab:ek-shap-disk}
+    \begin{tabular}{rlr}
+        \textbf{Sıra} & \textbf{Özellik} & \textbf{Ortalama $|\phi_i|$} \\
+        \hline
+        1  & \texttt{total\_errors\_rsum\_24h}                &  2\,111 \\
+        2  & \texttt{total\_warning\_count\_rsum\_72h}        &  1\,544 \\
+        3  & \texttt{resource\_exhausted\_count\_rsum\_72h}   &  1\,506 \\
+        4  & \texttt{disk\_usage\_percent\_rmean\_24h}        &  1\,389 \\
+        5  & \texttt{io\_error\_count\_rsum\_72h}             &  1\,244 \\
+        6  & \texttt{disk\_usage\_percent\_rmean\_12h}        &  1\,102 \\
+        7  & \texttt{disk\_io\_degradation\_count\_rsum\_72h} &    987 \\
+        8  & \texttt{network\_error\_count\_rsum\_24h}        &    834 \\
+        9  & \texttt{vm\_count\_rmean\_24h}                   &    791 \\
+        10 & \texttt{quota\_exceeded\_count\_rsum\_24h}       &    623 \\
+    \end{tabular}
+\end{table}
+
 \end{ekler}

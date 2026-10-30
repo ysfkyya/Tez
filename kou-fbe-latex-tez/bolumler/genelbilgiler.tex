@@ -97,15 +97,316 @@ Bu çalışmada SHAP analizi üç amaçla kullanılmaktadır:
 
 
 \section{Büyük Dil Modelleri ve Operasyonel Zekâ}
+\label{sec:llm}
 
-Büyük dil modelleri (LLM), milyarlarca parametreli dönüştürücü (transformer) mimarisiyle eğitilen ve doğal dil anlama ile üretme kapasitesine sahip modellerdir.
-GPT-3 \autocite{brown2020} ile birlikte bağlam içi öğrenme (in-context learning) kapasitesi gösterilmiş; GPT-4 \autocite{openai2023} ve Claude \autocite{anthropic2024} ile bu kapasite üretim ortamlarında kullanılabilir düzeye ulaşmıştır.
+\subsection{Transformer Mimarisi ve Büyük Dil Modelleri}
 
-IT operasyonları alanında LLM'ler, yapılandırılmış sistem verilerini (metrik, log, uyarı) doğal dil önerilerine dönüştürme rolüyle kullanılmaktadır.
-Bu yaklaşımın başarısı büyük ölçüde modele sağlanan bağlamın kalitesine bağlıdır: yalnızca ham metrik değerlerinin iletilmesi yerine, SHAP özellik önem sıralaması, log anomali sinyalleri, tahmin ufku ve servis sağlık durumu gibi bağlamsal bilgilerin eklenmesi daha spesifik ve uygulanabilir öneriler üretilmesini sağlamaktadır.
+Büyük dil modelleri (LLM), 2017 yılında Vaswani ve arkadaşlarının önerdiği Transformer mimarisi üzerine kurulu, milyarlarca parametreli sinir ağlarıdır.
+Transformer'ın temel yeniliği, sıralı işleme yerine öz-dikkat (self-attention) mekanizmasıyla tüm giriş dizisini paralel olarak modelleme yeteneğidir.
+Öz-dikkat, her konumun diğer tüm konumlarla ilişkisini hesaplayarak uzun menzilli bağımlılıkları ve bağlamsal anlam ilişkilerini yakalamaktadır.
 
-Bu çalışmada Claude Sonnet ve GPT-4o modelleri paralel olarak kullanılmakta; her iki modelin yanıtı tek bir operasyonel raporda birleştirilmektedir.
+Ölçek yasası (scaling law) araştırmaları, model parametresi, eğitim verisi ve hesaplama kapasitesi arttıkça model performansının öngörülebilir biçimde iyileştiğini göstermiştir.
+Bu bulgu, büyük ölçekli ön eğitimle (pre-training) genel dil modelinin oluşturulmasını ve ardından belirli görevlere ince ayar (fine-tuning) uygulanmasını standart pratik hâline getirmiştir.
+
+GPT-3 \autocite{brown2020} ile 175 milyar parametre ölçeğine ulaşılmış ve bağlam içi öğrenme (in-context learning) kapasitesi gösterilmiştir: model, ince ayar gerektirmeksizin yalnızca birkaç örnek veya talimatla yeni görevlere uyum sağlayabilmektedir.
+GPT-4 \autocite{openai2023} ve Claude \autocite{anthropic2024} bu kapasiteyi üretim ortamlarında kullanılabilir ve güvenilir bir düzeye taşımıştır.
+
+\subsection{Bağlam İçi Öğrenme ve İstem Mühendisliği}
+
+Bağlam içi öğrenme, LLM'lerin parametre güncellemesi olmaksızın yalnızca girdi bağlamından (prompt) öğrenme yapabilmesini ifade etmektedir.
+Bu özellik, her kullanım durumu için ayrı bir model eğitmek yerine tek bir genel model üzerinden farklı görevlerin gerçekleştirilmesine olanak tanır.
+
+İstem mühendisliği (prompt engineering), LLM'den istenen çıktıyı elde etmek için giriş bağlamının sistematik biçimde tasarlanmasıdır.
+AIOps bağlamında etkili istem tasarımı şu unsurları kapsamalıdır:
+
+\begin{maddelendir}[label=--]
+    \item \textbf{Rol tanımı:} Modele uzman kimlik atanması (``Deneyimli bir bulut operasyonu mühendisi olarak...'') çıktı kalitesini iyileştirmektedir.
+    \item \textbf{Yapılandırılmış bağlam:} Sayısal verinin (metrik, z-skor, tahmin tarihi) serbest metin yerine tablo veya liste biçiminde sunulması modelin veriyi daha doğru yorumlamasını sağlar.
+    \item \textbf{Çıktı formatı kısıtlaması:} Beklenen çıktı yapısının (öncelik seviyesi, aksiyon listesi, servis bazında gruplama) açıkça belirtilmesi tutarsızlıkları azaltır.
+    \item \textbf{Negatif talimatlar:} Kaçınılması gereken davranışların (gereksiz tekrar, belirsiz öneriler) belirtilmesi çıktı özgüllüğünü artırır.
+\end{maddelendir}
+
+\subsection{LLM'lerin IT Operasyonlarında Kullanımı}
+
+IT operasyonları alanında LLM'lerin iki temel kullanım biçimi öne çıkmaktadır.
+
+\textbf{Log-to-text ve alert-to-text:} Ham log satırlarının ya da kural tabanlı alarm metninin LLM tarafından doğal dile dönüştürülmesidir.
+Bu yaklaşım operatörlerin teknik içeriği daha hızlı anlamasını kolaylaştırır; ancak sentez ve önceliklendirme yetenekleri sınırlıdır.
+
+\textbf{Çok sinyal sentezi ve proaktif öneri:} Metrik, log, tahmin ve açıklanabilirlik çıktıları gibi heterojen veri kaynaklarının birleştirilerek operatöre yönelik önceliklendirilmiş aksiyon planı üretilmesidir.
+Bu yaklaşım, LLM'in alan bilgisini (OpenStack servis mimarisi, kota yönetimi, RabbitMQ gecikmeleri) bağlam bilgisiyle (mevcut sistem durumu) birleştirme kapasitesine dayanmaktadır.
+
+CloudMon ikinci yaklaşımı benimsemektedir.
+Yapılandırılmış bağlam (kapasite durumu + SHAP sıralaması + log anomalileri + cascade riski) LLM'e sistematik biçimde iletilmekte; model bu bağlamı bütünsel olarak değerlendirerek servis bazında önceliklendirilmiş öneriler üretmektedir \autocite{brown2020, openai2023, anthropic2024}.
+
+Bu çalışmada Claude Sonnet (\texttt{claude-sonnet-4-6}) ve GPT-4o (\texttt{gpt-4o}) modelleri paralel olarak kullanılmakta; her iki modelin yanıtı tek bir operasyonel raporda birleştirilmektedir.
 Modellere iletilen istem (prompt), kapasite durumu, log özeti, SHAP sıralaması, ön-arıza örüntüleri ve cascade risk skoru içeren yapılandırılmış bir bağlam bloğunu kapsamaktadır.
+
+
+\section{OpenStack Mimarisi ve Bileşenleri}
+\label{sec:openstack}
+
+OpenStack, 2010 yılında Rackspace ve NASA iş birliğiyle başlatılan ve günümüzde OpenInfra Foundation çatısı altında sürdürülen açık kaynaklı bir bulut işletim sistemi çerçevesidir \autocite{openstack2024}.
+Modüler mimarisi sayesinde özel (private) veya hibrit bulut ortamları oluşturulmasına olanak tanımaktadır.
+Her modül, REST API aracılığıyla diğer modüllerle iletişim kurmakta; bu tasarım farklı donanım sağlayıcıları ve depolama arka uçlarıyla entegrasyonu mümkün kılmaktadır.
+TÜBİTAK BİLGEM bünyesindeki Safir Bulut projesi de bu açık kaynak altyapıyı temel alarak yurt içinde bağımsız bir özel bulut çözümü geliştirmektedir.
+
+\subsection{Nova: İşlem Servisi}
+
+Nova, OpenStack'in çekirdek işlem bileşenidir ve tüm sanal makine yaşam döngüsünü yönetir: VM başlatma, duraklatma, yeniden boyutlandırma, anlık görüntü alma ve sonlandırma işlemleri Nova aracılığıyla gerçekleştirilir.
+Nova iç mimarisi birkaç alt servisten oluşur:
+
+\begin{maddelendir}[label=--]
+    \item \textbf{nova-api:} Dış istekleri karşılayan REST uç noktasıdır.
+    Kullanıcı ve operatör isteklerini doğrular, yetkilendirir ve arka uç servislerine iletir.
+    API yanıt gecikmesi (\texttt{api\_latency\_ms}) ve saatlik istek sayısı (\texttt{api\_requests\_per\_hour}) bu servis üzerinden izlenmektedir.
+
+    \item \textbf{nova-scheduler:} Yeni VM taleplerini uygun compute node'a atayan karar mekanizmasıdır.
+    Yerleşimi etkileyen etkenler arasında mevcut vCPU ve bellek kapasitesi, afinite/anti-afinite kuralları ve kullanıcı tanımlı filtreler yer almaktadır.
+    Zamanlayıcı bozulma logları (\texttt{scheduler\_degradation\_count}) yüksek yük altında nova-scheduler'ın gecikme yaşadığını göstermekte; bu durum CloudMon'un erken uyarı sinyalleri arasında öne çıkmaktadır.
+
+    \item \textbf{nova-compute:} Compute node'lar üzerinde çalışan ve hipervizör (KVM, QEMU) aracılığıyla VM'lerin doğrudan yaşam döngüsünü yöneten servistir.
+    Nova-compute hataları sistemin vCPU ve bellek kaynaklarının fiilen kullanılamaz hale geldiğine işaret eder ve kapasite tahmin modellerinin en kritik sinyal kaynakları arasında yer almaktadır.
+\end{maddelendir}
+
+Nova, kullanılabilir kaynakları merkezi bir veritabanında (nova-cell) tutmakta ve her VM'nin kaynak tahsisini kayıt altına almaktadır.
+Bu yapı sayesinde \texttt{vcpu\_usage\_percent} ve \texttt{memory\_usage\_percent} gibi kapasite metrikleri, Nova'nın kota ve tahsis kayıtlarından türetilmektedir.
+
+\subsection{Neutron: Ağ Servisi}
+
+Neutron, yazılım tanımlı ağ (SDN) ilkeleriyle OpenStack ortamında sanal ağ altyapısını yönetir.
+Sanal ağ (network), alt ağ (subnet), yönlendirici (router) ve güvenlik grubu (security group) nesnelerini API aracılığıyla tanımlamak mümkündür.
+Neutron'un eklenti (plugin) mimarisi, altta yatan ağ teknolojisinden (Open vSwitch, Linux Bridge, OVN) bağımsız çalışmasını sağlar.
+
+CloudMon açısından Neutron'un en kritik metrikleri gelen/giden ağ trafiği (\texttt{network\_in\_mbps}, \texttt{network\_out\_mbps}) ve ağ hatası sayımlarıdır.
+Neutron loglarındaki zirve değerleri, VM başlatma fırtınalarında (VM launch storm) ya da güvenlik grubu kural çakışmalarında ortaya çıkan ağ düzeyindeki sorunları işaret etmektedir.
+
+\subsection{Cinder: Blok Depolama Servisi}
+
+Cinder, kalıcı blok depolama birimleri (volume) sağlar ve bu birimleri VM'lere ek disk olarak bağlar.
+Cinder mimarisi \texttt{cinder-api}, \texttt{cinder-scheduler} ve \texttt{cinder-volume} alt servislerinden oluşur; \texttt{cinder-volume}, depolama arka ucuyla (LVM, Ceph, NetApp vb.) doğrudan etkileşime girer.
+
+Disk kullanım oranı (\texttt{disk\_usage\_percent}) Cinder'daki tahsis kayıtlarından; disk I/O hata sayımları (\texttt{io\_error\_count}) ise \texttt{cinder-volume} loglarından türetilmektedir.
+I/O yoğunluğu yüksek iş yüklerinde disk I/O bozulma sinyallerinin (\texttt{disk\_io\_degradation\_count}) SHAP analizinde öne çıkması, Cinder katmanındaki darboğazların kapasite tahminine doğrudan yansıdığını ortaya koymaktadır.
+
+\subsection{Keystone: Kimlik ve Yetkilendirme Servisi}
+
+Keystone, OpenStack'in merkezi kimlik servisidir ve diğer tüm servisler kullanıcı doğrulaması için Keystone'a başvurur.
+İki temel işlevi token üretimi ve servis kataloğu yönetimidir: kullanıcı kimlik bilgilerini doğrulayan Keystone bir erişim jetonu (token) oluşturur; diğer servisler bu jetonu doğrulayarak isteklere izin verir ya da reddeder.
+
+Proje bazında kota yönetimi de Keystone üzerinden yapılmaktadır.
+Bir projenin izin verilen vCPU, bellek veya instance sayısını aşması durumunda \texttt{quota\_exceeded} hata logu üretilir.
+CloudMon bu logu kritik bir erken uyarı sinyali olarak değerlendirmektedir: kota baskısı (\texttt{quota\_pressure\_count}), altyapının kapasiteye yaklaşmadan önce kaynak kısıtlamasıyla karşılaştığını göstermektedir.
+Test döneminde kota aşımı loglarının z-skoru 4{,}5'e çıkması, bu sinyalin bellek eşik aşımını önceleyen en güçlü göstergelerden biri olduğunu teyit etmektedir.
+
+\subsection{OpenStack Servis Etkileşim Modeli}
+
+OpenStack bileşenleri bir mesajlaşma katmanı (genellikle RabbitMQ) ve ortak bir kimlik doğrulama katmanı (Keystone) üzerinden birbirleriyle haberleşir.
+Bu etkileşim modelinin CloudMon açısından kritik sonucu şudur: tek bir servisin (ör. Keystone) yüksek gecikmesi veya yeniden başlatılması, diğer tüm servislerin (Nova, Neutron, Cinder) kimlik doğrulama akışını kesmekte ve zincirleme degradasyon (cascade failure) riskini artırmaktadır.
+Bu etkileşim, CloudMon'un cascade risk kanalının tasarımını doğrudan motive etmiştir: birden fazla servisin eş zamanlı degradasyonu bağımsız arızaların ötesinde sistemik bir sorunun göstergesidir.
+
+
+\section{Prometheus ve Thanos ile Metrik İzleme}
+\label{sec:prometheus}
+
+\subsection{Prometheus Mimarisi}
+
+Prometheus, SoundCloud tarafından geliştirilen ve 2016 yılında Cloud Native Computing Foundation (CNCF) bünyesine alınan açık kaynaklı bir izleme ve uyarı sistemidir \autocite{prometheus2024}.
+Temel tasarım ilkesi \textit{çekme tabanlı (pull-based)} metrik toplamasıdır: Prometheus, izlenen hedeflerin HTTP endpoint'lerini (\texttt{/metrics}) belirli aralıklarla (scrape interval) ziyaret ederek anlık metrik değerlerini okur.
+Bu yaklaşım, ajanın izlenen sisteme metrik \textit{göndermesi} yerine izleme sunucusunun veriyi \textit{çekmesini} esas alır; böylece ağ politikaları karmaşıklaşmadan geniş ölçekli metrik toplama mümkün olur.
+
+Prometheus'un veri modeli zaman serisi üzerine kuruludur.
+Her zaman serisi bir metrik adı ve anahtar-değer çiftlerinden oluşan etiketler (labels) kümesiyle tanımlanır:
+\begin{equation}
+    \text{metrik\_adı}\{k_1{=}v_1,\, k_2{=}v_2,\, \ldots\}\ @\ t \;\to\; \text{değer}
+    \label{eq:prom-tseries}
+\end{equation}
+Örneğin Nova'nın çalışan instance sayısı \texttt{nova\_compute\_instances\{state="active", host="compute-01"\}} biçiminde ifade edilmektedir.
+
+Prometheus dört metrik tipi tanımlar: \textit{Counter} (monoton artan sayaç), \textit{Gauge} (anlık değer), \textit{Histogram} (gözlem dağılımı) ve \textit{Summary} (yüzdelik dilim).
+CloudMon'da kullanılan \texttt{vcpu\_usage\_percent}, \texttt{memory\_usage\_percent} ve \texttt{disk\_usage\_percent} metrikleri Gauge tipindedir; her saatlik veri noktası, o saatteki anlık kullanım yüzdesini yansıtmaktadır.
+
+PromQL (Prometheus Query Language), zaman serisi üzerinde filtre, agregasyon ve matematiksel dönüşüm işlemleri gerçekleştiren işlevsel bir sorgu dilidir.
+Saatlik agregasyon için kullanılan örnek bir PromQL ifadesi:
+\begin{equation}
+    \texttt{avg\_over\_time(vcpu\_usage\_percent[1h])}
+    \label{eq:promql}
+\end{equation}
+
+\subsection{Thanos ile Uzun Vadeli Depolama}
+
+Prometheus, varsayılan olarak verileri yerel diskte sınırlı bir süre tutar (varsayılan: 15 gün).
+18 aylık veri setinin gerektirdiği uzun vadeli depolama için Thanos kullanılmaktadır \autocite{thanos2024}.
+
+Thanos, Prometheus Federation mimarisinin üzerine şu bileşenleri ekler:
+
+\begin{maddelendir}[label=--]
+    \item \textbf{Thanos Sidecar:} Her Prometheus örneğinin yanında çalışır; yerel blokları nesne deposuna (object storage: S3 veya Swift) yükler ve Thanos sorgu katmanına gRPC arayüzü sunar.
+    \item \textbf{Thanos Query:} Birden fazla Prometheus ve Sidecar kaynağından veri toplayarak tek bir PromQL sorgu yüzeyi oluşturur; çakışan veriler tekilleştirilir (deduplication).
+    \item \textbf{Thanos Store Gateway:} Nesne deposundaki tarihsel blokları Thanos Query'ye HTTP/gRPC üzerinden sunar; bu sayede yıllık veri yerel bellekte tutulmak zorunda kalmaz.
+    \item \textbf{Thanos Compactor:} Zaman içinde biriken blokları sıkıştırır; 5 dakikalık çözünürlükteki eski verileri saatlik ve günlük örnekleme (downsampling) ile depolar.
+\end{maddelendir}
+
+CloudMon'un 18 aylık veri kümesi (\textasciitilde13.104 saatlik nokta), Thanos Store Gateway üzerinden PromQL ile saatlik granülaritede sorgulanarak \texttt{metrics.csv} olarak dışa aktarılmıştır.
+
+
+\section{OpenSearch ile Log Yönetimi}
+\label{sec:opensearch}
+
+\subsection{OpenSearch'in Temelleri}
+
+OpenSearch, Elasticsearch 7.10 kod tabanından türetilen ve Amazon tarafından Apache 2.0 lisansıyla yayımlanan açık kaynaklı dağıtık arama ve analitik platformudur \autocite{opensearch2024}.
+Elasticsearch ile olan ortak köken, OpenSearch'in aynı REST API'yi, aynı Lucene tabanlı arama motorunu ve aynı indeks yapısını kullanmasını sağlamaktadır.
+
+OpenSearch'in temel depolama birimi \textit{indeks}tir (index).
+Her belge (document) JSON formatında saklanır ve \textit{şema (mapping)} aracılığıyla alanlar tanımlanır.
+Dağıtık yapıda her indeks birden fazla parçaya (shard) bölünür; birincil ve yedek parçalar farklı node'lara dağıtılarak yüksek erişilebilirlik sağlanır.
+
+Zaman damgasına dayalı log endekslemesi için OpenSearch'te \textit{index rollover} politikaları kullanılmaktadır: günlük veya haftalık yeni endeksler oluşturularak indeks büyüklüğü yönetilebilir tutulur.
+CloudMon'un çalıştığı OpenStack ortamında \texttt{nova-logs-YYYY.MM} biçiminde aylık endeksler tutulmaktadır.
+
+\subsection{Log Türleri ve Yapısı}
+
+OpenStack servisleri standart Python loglama kütüphanesini kullanır; her log satırı en azından şu alanları içerir: zaman damgası, günlük seviyesi (DEBUG / INFO / WARNING / ERROR / CRITICAL), servis adı, istek kimliği (request-id) ve mesaj metni.
+
+Örnek bir Nova log kaydı:
+\begin{verbatim}
+2026-06-15 08:34:21 ERROR nova.scheduler.filter_scheduler
+  [req-abc123] No valid host was found.
+  There are not enough hosts available.
+\end{verbatim}
+
+Bu kayıt \texttt{scheduler\_error\_count} sayacına katkı yapar; aynı zaman penceresinde \texttt{slow\_response} loglarının da artması, kaynak yetersizliğinden kaynaklanan bir degradasyon örüntüsünü işaret edebilir.
+
+\subsection{Fluentd ile Log İletim Pipeline'ı}
+
+Fluentd, CNCF bünyesindeki açık kaynaklı bir log toplayıcıdır \autocite{fluentd2024}.
+İnput eklentileri aracılığıyla farklı kaynaklardan (dosya, syslog, HTTP) log toplayarak output eklentileriyle farklı hedeflere (Elasticsearch/OpenSearch, S3, Kafka) iletir.
+
+CloudMon'un çalıştığı ortamda Fluentd aşağıdaki pipeline ile yapılandırılmıştır:
+
+\begin{maddelendir}[label=\arabic*.]
+    \item \textbf{Input:} \texttt{tail} eklentisi ile Nova, Neutron, Cinder ve Keystone'un \texttt{/var/log/} dosyaları izlenir; dosya sonuna her yeni kayıt eklendikten sonra işleme alınır.
+    \item \textbf{Filter:} \texttt{grep} ve \texttt{record\_transformer} eklentileriyle kayıtlar zenginleştirilir: servis adı, host adı ve log seviyesi gibi meta veriler eklenerek belge yapısı normalleştirilir.
+    \item \textbf{Output:} \texttt{elasticsearch} (OpenSearch uyumlu) eklentisi ile işlenen kayıtlar hedef endekse yazılır.
+    Bulk API kullanılarak ağ turu başına birden fazla belge yazılmakta; bu yöntem gecikmeyi düşürürken ağ yükünü azaltmaktadır.
+\end{maddelendir}
+
+Fluentd tarafından OpenSearch'e yazılan log kayıtları, CloudMon tarafından OpenSearch aggregation sorguları aracılığıyla saatlik pencerede sayılmakta ve \texttt{log\_features.csv} tablosuna dönüştürülmektedir.
+Bu dönüşümde her hücre, belirli bir log tipinin belirli bir saatteki toplam sayısını temsil etmektedir.
+
+\subsection{OpenSearch Aggregation ile Saatlik Log Özellik Üretimi}
+
+CloudMon'un log özellik tablosu, aşağıdaki şablona dayanan OpenSearch date\_histogram + terms aggregation sorgusuyla üretilmektedir:
+
+\begin{verbatim}
+GET nova-logs-*/_search
+{
+  "aggs": {
+    "hourly": {
+      "date_histogram": {
+        "field": "@timestamp",
+        "calendar_interval": "1h"
+      },
+      "aggs": {
+        "error_count": {
+          "filter": { "term": { "log_level": "ERROR" } }
+        },
+        "slow_response": {
+          "filter": {
+            "match_phrase": { "message": "slow response" }
+          }
+        }
+      }
+    }
+  }
+}
+\end{verbatim}
+
+Bu yaklaşım, ham log satırlarının CloudMon tarafına aktarılmasını gerektirmemekte; yalnızca saatlik sayımlar bir CSV satırına dönüştürülerek aktarılmaktadır.
+Böylece veri transferi minimumsda tutulurken log işleme yükü OpenSearch tarafında kalır.
+
+
+\section{Bulut İzleme Paradigmaları: Reaktif'ten Proaktif'e}
+\label{sec:izlemeparadigmalari}
+
+\subsection{Gözlemlenebilirlik (Observability) Kavramı}
+
+Gözlemlenebilirlik, bir sistemin dış çıktılarına dayanılarak iç durumunun ne ölçüde anlaşılabildiğini ifade eden bir kavramdır.
+Site Güvenilirlik Mühendisliği (SRE) alanında yaygınlaşan bu kavram, \textit{metrik}, \textit{log} ve \textit{iz (trace)} olmak üzere üç temel sütuna dayanmaktadır \autocite{beyer2016}.
+
+\begin{maddelendir}[label=--]
+    \item \textbf{Metrikler:} Zaman serisi biçimindeki sayısal ölçümlerdir.
+    Düşük maliyet ve yüksek granülarite sunar; ancak olayların \textit{ne olduğunu} gösterir, \textit{neden olduğunu} vermez.
+    \item \textbf{Loglar:} Zaman damgalı ayrıntılı olay kayıtlarıdır.
+    Neden sorusunu yanıtlama potansiyeli taşır; ancak hacmi yüksek ve yapısızlığı nedeniyle analizi zordur.
+    \item \textbf{İzler (Traces):} Bir isteğin birden fazla servis üzerindeki yolculuğunu uçtan uca takip eder.
+    Dağıtık sistemlerde gecikme kaynaklarının tespitinde kritiktir; ancak enstrümantasyon maliyeti yüksektir.
+\end{maddelendir}
+
+CloudMon, metrik ve log sütunlarını birleştiren bir gözlemlenebilirlik yaklaşımı benimsemektedir; iz entegrasyonu mevcut kapsam dışında bırakılmıştır.
+
+\subsection{Reaktif İzleme}
+
+Geleneksel izleme yaklaşımı reaktiftir: sabit eşikler tanımlanır, bir metrik bu eşiği geçtiğinde alarm üretilir.
+Örneğin ``vCPU kullanımı \%90'ı geçerse uyar'' kuralı tipik bir reaktif alarm örneğidir.
+
+Reaktif yaklaşımın temel sınırlılığı, alarmın yalnızca sorun zaten ortaya çıktıktan sonra tetiklenmesidir.
+Kapasite açısından bu durum ciddi bir güçlüktür: alarm geldiğinde servis zaten degradasyona uğramış ya da kaynak dolmuş olabilir.
+Ayrıca sabit eşikler mevsimsellik, staj dönemi veya geçici yük artışı gibi iş yükü örüntülerini dikkate almaz; bu durum yüksek yanlış pozitif (false positive) oranlarına yol açar.
+
+\subsection{Proaktif İzleme ve Tahminsel Yaklaşımlar}
+
+Proaktif izleme, mevcut veriyi kullanarak sorunun henüz gerçekleşmeden öngörülmesini hedefler.
+İki temel strateji mevcuttur:
+
+\textbf{Tahminsel kapasite planlaması:} Geçmiş kaynak kullanım trendleri analiz edilerek gelecekteki tüketim modellenir.
+Bu yaklaşımın zorluğu, öngörülemeyen iş yükü değişikliklerini kapsayabilen yeterince esnek modeller geliştirmektir.
+Zaman serisi yöntemleri (ARIMA, Holt-Winters) tek değişkenli tahmin konusunda güçlüyken, çok değişkenli makine öğrenmesi modelleri farklı kaynak türleri arasındaki korelasyonları öğrenerek daha doğru uzun vadeli tahminler üretebilmektedir \autocite{makedonas2022}.
+
+\textbf{Anomali tabanlı erken uyarı:} Mevcut davranışın tarihsel norm dışına çıkmasını tespit eden istatistiksel veya öğrenme tabanlı yöntemlerdir.
+Bu yaklaşım metrik eşiklerinin bilinmediği ya da dinamik olarak değiştiği durumlarda özellikle değerlidir.
+Log verilerindeki anomali sinyallerinin metrik anormalliklerden önce ortaya çıkması, log tabanlı erken uyarının proaktif izlemede birincil bir kanal olarak kullanılmasına zemin hazırlamaktadır.
+
+\subsection{Mevcut AIOps Platformları}
+
+Ticari AIOps platformları (Dynatrace, Datadog, Elastic Observability) izleme, log analizi ve uyarı üretimini entegre bir arayüzde sunar.
+Bu platformların büyük bölümü makine öğrenmesi destekli anomali tespiti ve gürültü filtreleme yetenekleri barındırmaktadır.
+
+Bununla birlikte ticari platformların açık kaynak alternatifleri karşısında birkaç yapısal sınırlılığı bulunmaktadır: özelleştirilmiş anomali örüntülerinin tanımlanması için platform bağımlı konfigürasyon gerekmekte, SHAP gibi açıklanabilirlik katmanları genellikle özel API'ler arkasında gizlenmekte ve LLM entegrasyonu için bağlam zenginleştirmesi platform kısıtlamaları nedeniyle sınırlı kalmaktadır.
+Açık kaynak yığını (Prometheus + OpenSearch + özel ML pipeline), bu esnekliği sağlamak için tercih edilmektedir.
+
+
+\section{Zaman Serisi Tahmini: İstatistiksel ve Öğrenme Tabanlı Yöntemler}
+\label{sec:zamanserisi}
+
+\subsection{İstatistiksel Yöntemler}
+
+Zaman serisi tahmini için klasik istatistiksel yöntemler arasında ARIMA (AutoRegressive Integrated Moving Average) ve üstel düzeltme modelleri öne çıkmaktadır \autocite{calheiros2015}.
+ARIMA modeli, zaman serisini otoregresif (AR) ve hareketli ortalama (MA) bileşenleri ile entegrasyon (I) terimiyle modelleyerek durağan seriler üzerinde güçlü tahmin başarısı sunar.
+Holt-Winters yöntemi ise mevsimsel bileşenleri (trend, mevsimsellik, kalıntı) ayırarak iş gücü uygulamalarında yaygın biçimde kullanılmaktadır.
+
+Bu yöntemlerin başlıca sınırlılıkları şunlardır: (i) tek değişkenli doğaları nedeniyle log özellikleri gibi dışsal değişkenleri doğrudan kullanamamaları, (ii) durağanlık varsayımları nedeniyle ani rejim değişikliklerine (concept drift) uyum sağlayamamaları ve (iii) uzun gecikmeli bağımlılıkları modelleme kapasitelerinin sınırlı olmasıdır.
+
+\subsection{Makine Öğrenmesi ile Zaman Serisi Regresyonu}
+
+Zaman serisini regresyon problemine dönüştüren yaklaşım, geçmiş pencere istatistikleri (hareketli ortalama, gecikme, varyans) ve dışsal değişkenleri (log sayıları, takvim bilgileri) özellik vektörüne dahil ederek çok değişkenli bir regresyon modeli eğitir.
+Bu yaklaşımın avantajı, log tabanlı özellikler gibi farklı tip veri kaynaklarının modele entegre edilebilmesidir.
+
+Çok ufuklu tahmin (multi-horizon forecasting) için önerilen Temporal Fusion Transformer (TFT) gibi derin öğrenme mimarileri, dikkat mekanizması (attention) aracılığıyla uzun vadeli bağımlılıkları ve çok değişkenli ilişkileri yakalayabilmektedir \autocite{lim2021}.
+Ancak bu mimarilerin büyük eğitim verisi ve yüksek hesaplama maliyeti gerektirmesi, küçük ölçekli ve görece kısa veri setlerinde klasik modellere kıyasla dezavantaj oluşturabilmektedir.
+
+CloudMon bu gerçekliği dikkate alarak derin öğrenme yerine yorumlanabilirliği yüksek ve eğitim maliyeti düşük yedi algoritma üzerinde karşılaştırmalı bir değerlendirme yapmaktadır.
+Bu seçim, hem pratik üretime uygunluğu hem de SHAP açıklanabilirlik analizinin doğal entegrasyonunu mümkün kılmaktadır.
+
+\subsection{Özellik Mühendisliğinin Rolü}
+
+Makine öğrenmesi tabanlı zaman serisi tahmininde özellik mühendisliği, ham veriyi modelin anlayabileceği temsillere dönüştürür.
+Gecikmeli değerler (lag features), modelin geçmiş örneklemlere doğrudan erişmesini sağlarken; hareketli istatistikler (rolling statistics) kısa ve uzun vadeli trendleri kodlar.
+Değişim hızı (delta) özellikleri ise yükselme ve alçalma eğilimlerini yakalamak için kullanılır.
+
+Bu mühendislik adımı, log sayımlarının zaman boyutunda birleştirilmesine de olanak tanır: ham saatlik log sayımı tek bir skaler iken, 72 saatlik hareketli toplamı o anki birikim trendini daha bütüncül biçimde yansıtır.
+Bu dönüşüm, log özelliklerinin SHAP sıralamasında üst sıralara çıkmasında kritik bir role sahiptir.
 
 
 \section{Literatürdeki Boşluk ve Tezin Konumlandığı Alan}
@@ -126,3 +427,84 @@ Modellere iletilen istem (prompt), kapasite durumu, log özeti, SHAP sıralamas�
 \end{maddelendir}
 
 Bu tez, söz konusu boşlukları hedef alarak OpenStack tabanlı gerçek bir bulut altyapısı üzerinde log--metrik korelasyonuna dayalı, açıklanabilir ve LLM destekli proaktif bir kapasite yönetim sistemi geliştirmektedir.
+
+
+\section{İlgili Çalışmalar Karşılaştırması}
+\label{sec:ilgiliçalışmalar}
+
+Bu bölümde CloudMon ile doğrudan ilişkili dört temel araştırma alanındaki öncü çalışmalar sistematik biçimde karşılaştırılmaktadır: (i) AIOps ve anomali tespiti, (ii) log analizi, (iii) bulut kapasite tahmini ve (iv) LLM tabanlı operasyonel zekâ.
+
+\subsection{AIOps ve Anomali Tespiti}
+
+Notaro ve arkadaşlarının kapsamlı anket çalışması \autocite{notaro2021}, 2015--2021 yılları arasında yayımlanan 130'dan fazla AIOps makalesini inceleyerek başarısızlık yönetimini beş alt alana ayırmaktadır: anomali tespiti, kök neden analizi, olay korelasyonu, arıza tahmini ve otomatik iyileştirme.
+Bu sınıflandırmaya göre CloudMon ağırlıklı olarak \textit{arıza tahmini} (capacity forecasting) ve \textit{anomali tespiti} (log-based anomaly detection) alt alanlarında konumlanmaktadır.
+
+Önemli bir gözlem şudur: anket kapsamındaki çalışmaların \%74'ü ya yalnızca log verisi ya da yalnızca metrik verisi kullanmaktadır.
+İki kaynağı birleştiren ve bu birleştirmenin tahmini nasıl etkilediğini nicel olarak ölçen çalışmalar kümesi oldukça küçük kalmaktadır; bu boşluk CloudMon'un temel motivasyon noktalarından birini oluşturmaktadır.
+
+Dang ve arkadaşları \autocite{dang2019}, AIOps'un üretim ortamlarında karşılaştığı gerçek dünya güçlüklerini belgelemiştir.
+Öne çıkan güçlükler arasında veri gürültüsü, yanlış alarm oranının yüksekliği ve model çıktılarının operatörler tarafından yorumlanmasındaki zorluklar sayılmaktadır.
+CloudMon bu güçlükleri sırasıyla Winsorization (gürültü azaltma), SHAP tabanlı açıklama (güven artırma) ve LLM sentezi (yorumlama kolaylaştırma) ile adreslemektedir.
+
+\subsection{Log Analizi}
+
+Log analizi alanında Xu ve arkadaşlarının çalışması \autocite{xu2009}, konsol loglarından büyük ölçekli sistem sorunlarının tespit edilebileceğini göstermiştir.
+Bu çalışma, yapılandırılmamış metin loglarının boyut indirgeme (PCA) yoluyla anomali tespitine dönüştürülebileceğini gösteren ilk kapsamlı örneklerden biridir.
+CloudMon bu yaklaşıma kıyasla farklı bir yol izlemektedir: ham metin ayrıştırma yerine, OpenSearch tarafından önceden kategorize edilmiş 15 log tipinin saatlik sayımlarını kullanmaktadır.
+Bu tasarım kararı, log ayrıştırma hatalarına karşı dayanıklılığı artırmakta ve hesaplama maliyetini öngörülebilir kılmaktadır.
+
+Du ve arkadaşlarının DeepLog yaklaşımı \autocite{du2017}, sistem loglarını LSTM modeliyle modelleyerek normal log dizilerinden sapmaları tespit etmektedir.
+Bu yaklaşım yapılandırılmamış log verisi için güçlü bir anomali tespit yöntemi sunsa da önemli sınırlılıklar taşımaktadır: LSTM modeli log formatına bağımlıdır, model çıktısı doğrudan yorumlanamaz ve kapasite tahmini (nicel çıktı) üretmek için ek katmanlar gerekmektedir.
+Meng ve arkadaşlarının LogAnomaly çalışması \autocite{meng2020} DeepLog'u geliştirerek hem sıralı hem de nicel anomalileri tespit etmektedir; ancak bu yaklaşım da aynı şekilde noktasal kapasite tahmini üretmez.
+
+Cloudmon'un log işleme hattı bu çalışmalardan farklı olarak log verilerini bir makine öğrenmesi regresyon modelinin \textit{girdisi} olarak kullanmaktadır.
+Bu yaklaşım, log anomalilerinin nicel kapasite tahminini nasıl etkilediğini SHAP atıf değerleriyle ölçme imkânı sunmaktadır; saf log anomali tespit yöntemlerinde bu ölçüm mümkün değildir.
+
+He ve arkadaşlarının log analizi için otomasyon yöntemlerini inceleyen tarama çalışması \autocite{he2021}, genel amaçlı log ayrıştırma algoritmalarının gerçek dünya log verisi üzerindeki kısıtlamalarını ortaya koymaktadır.
+Bu motivasyonla CloudMon, ayrıştırma adımını OpenSearch'e devretmiş; böylece kategori hatalarının sistem performansı üzerindeki etkisini yalıtmıştır.
+
+\subsection{Bulut Kapasite Tahmini}
+
+Calheiros ve arkadaşlarının çalışması \autocite{calheiros2015}, ARIMA modelinin bulut iş yükü tahminine uygulanmasını incelemekte ve modelin kısa vadeli tahminlerde etkili olduğunu göstermektedir.
+Ancak ARIMA'nın tek değişkenli doğası, log özellikleri gibi dışsal sinyallerin kullanılmasını engellemektedir.
+Bu sınırlılık, CloudMon'un çok değişkenli makine öğrenmesi yaklaşımının temel motivasyonunu açıklamaktadır.
+
+Makedonas ve arkadaşlarının çalışması \autocite{makedonas2022}, bulut veri merkezleri için makine öğrenmesi tabanlı iş yükü tahminini incelemekte ve Rastgele Orman, Gradient Boosting ve LSTM modellerini karşılaştırmaktadır.
+Bu çalışma bulut iş yükü tahmini için ML modellerinin istatistiksel yöntemlere karşı avantajını kapsamlı biçimde göstermiş olsa da SHAP açıklanabilirliği ve log özellik entegrasyonu ele alınmamaktadır.
+CloudMon bu açığı 272 boyutlu hibrit özellik uzayı ve SHAP analizi ile kapatmaktadır.
+
+Temporal Fusion Transformer (TFT) \autocite{lim2021}, çok ufuklu zaman serisi tahmini için güçlü bir derin öğrenme mimarisi sunmaktadır.
+Dikkat mekanizması sayesinde uzun vadeli bağımlılıkları yakalayabilen TFT, büyük ölçekli veri kümeleri için önerilmektedir.
+Bununla birlikte CloudMon'un 13\,104 saatlik veri seti, TFT'nin gerektirdiği yüzbinlerce örnekten oluşan büyük ölçekli eğitim verisi gereksinimini karşılamamaktadır.
+Bu gerçeklik, derin öğrenme yerine klasik ML yöntemlerinin tercih edilmesinin gerekçesini somutlaştırmaktadır.
+
+\subsection{LLM Tabanlı Operasyonel Zekâ}
+
+Büyük dil modellerinin BT operasyonlarında kullanımı, GPT-4 \autocite{openai2023} ve Claude \autocite{anthropic2024} gibi modellerin yaygınlaşmasıyla birlikte hız kazanmıştır.
+Bu alandaki erken uygulamalar ağırlıklı olarak log-to-text (log verisinden doğal dil açıklaması üretme) ve alert-to-text (alarm verisinden öneri oluşturma) görevlerine odaklanmaktadır.
+
+CloudMon bu yaklaşımı üç önemli noktada genişletmektedir.
+Birincisi, LLM'e yalnızca ham log veya alarm verisini değil; SHAP özellik sıralaması, ön-arıza örüntüleri ve cascade risk değerlendirmesini de kapsayan \textit{zenginleştirilmiş bağlam} sunmaktadır.
+İkincisi, iki farklı modeli (Claude Sonnet ve GPT-4o) paralel olarak çalıştırmaktadır; bu çoğulcu yaklaşım tek model bağımlılığını azaltmaktadır.
+Üçüncüsü, LLM katmanının girişine kural tabanlı öneri motorunun çıktısını da eklemekte; böylece LLM'i salt üretici değil \textit{sentezleyici ve gerekçelendirici} bir bileşen olarak konumlandırmaktadır.
+
+\autoref{tab:ilgili-karsılastırma}'de bu bölümde incelenen çalışmalar belirli kriterler üzerinden karşılaştırılmaktadır.
+
+\begin{table}[htbp]
+    \centering
+    \caption{İlgili çalışmalar karşılaştırma tablosu}
+    \label{tab:ilgili-karsılastırma}
+    \begin{tabular}{p{3.2cm}p{2.0cm}p{1.5cm}p{1.5cm}p{1.5cm}p{1.8cm}}
+        \textbf{Çalışma} & \textbf{Veri Kaynağı} & \textbf{Kapasite Tah.} & \textbf{SHAP} & \textbf{LLM} & \textbf{Ön-Arıza} \\
+        \hline
+        Notaro\,2021 \autocite{notaro2021}      & Metrik    & Hayır & Hayır & Hayır & Hayır \\
+        Xu\,2009 \autocite{xu2009}              & Log       & Hayır & Hayır & Hayır & Hayır \\
+        Du\,2017 \autocite{du2017}              & Log       & Hayır & Hayır & Hayır & Hayır \\
+        Calheiros\,2015 \autocite{calheiros2015}& Metrik    & Evet  & Hayır & Hayır & Hayır \\
+        Makedonas\,2022 \autocite{makedonas2022}& Metrik    & Evet  & Hayır & Hayır & Hayır \\
+        \textbf{CloudMon (bu tez)}              & \textbf{Met.+Log} & \textbf{Evet} & \textbf{Evet} & \textbf{Evet} & \textbf{Evet} \\
+    \end{tabular}
+\end{table}
+
+Bu karşılaştırma, CloudMon'un her bir ölçüt açısından mevcut literatüre getirdiği kümülatif katkıyı açıkça ortaya koymaktadır.
+Tekli veri kaynağı kullanan ya da açıklanabilirlik/LLM bileşeni içermeyen çalışmalar, CloudMon'un bu bileşenleri bir arada bütünleştiren yaklaşımına kıyasla sınırlı kalmaktadır.
