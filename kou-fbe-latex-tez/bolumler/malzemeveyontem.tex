@@ -1,18 +1,18 @@
 \chapter{MALZEME VE YÖNTEM}
 \label{ch:malzemeveyontem}
 
-Bu bölümde CloudMon sisteminin geliştirildiği OpenStack deney ortamı, veri toplama altyapısı, sistem mimarisi, log işleme pipeline'ı, özellik mühendisliği, kapasite tahmin modelleri, SHAP analizi ve öneri motoru ayrıntılı olarak açıklanmaktadır.
+Bu bölümde Bulut İzleme ve Öneri Sisteminin geliştirildiği OpenStack deney ortamı, veri toplama altyapısı, sistem mimarisi, log işleme pipeline'ı, özellik mühendisliği, kapasite tahmin modelleri, SHAP analizi ve öneri motoru ayrıntılı olarak açıklanmaktadır.
 
 
 \section{Sistem Mimarisi}
 
-CloudMon, OpenStack tabanlı özel bulut altyapısının proaktif olarak izlenmesi amacıyla geliştirilmiş altı adımlı bir analiz pipeline'ıdır.
+Bulut İzleme ve Öneri Sistemi, OpenStack tabanlı özel bulut altyapısının proaktif olarak izlenmesi amacıyla geliştirilmiş altı adımlı bir analiz pipeline'ıdır.
 Sistemin genel mimarisi \autoref{fig:mimari}'de gösterilmektedir.
 
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=0.95\textwidth]{metrics_overview}
-    \caption{CloudMon pipeline'ının genel akışı: veri yükleme, log analizi, özellik mühendisliği, kapasite tahmini, SHAP analizi ve öneri üretimi.}
+    \caption{Bulut İzleme ve Öneri Sistemi pipeline'ının genel akışı: veri yükleme, log analizi, özellik mühendisliği, kapasite tahmini, SHAP analizi ve öneri üretimi.}
     \label{fig:mimari}
 \end{figure}
 
@@ -32,7 +32,7 @@ Pipeline adımları sırasıyla şunlardır:
 
 \subsection{OpenStack Altyapısı}
 
-CloudMon, TÜBİTAK BİLGEM bünyesinde geliştirilen OpenStack tabanlı özel bulut platformu üzerinde çalıştırılmıştır.
+Bulut İzleme ve Öneri Sistemi, TÜBİTAK BİLGEM bünyesinde geliştirilen OpenStack tabanlı özel bulut platformu üzerinde çalıştırılmıştır.
 OpenStack, açık kaynak kodlu, modüler bir bulut işletim sistemi olup işlem, depolama ve ağ kaynaklarını API aracılığıyla yazılım katmanından yönetmeye olanak tanımaktadır \autocite{openstack2024}.
 Bu çalışmada dört temel OpenStack servisi izleme kapsamına alınmıştır:
 
@@ -57,30 +57,30 @@ OpenStack servislerinden metrik verisi, Prometheus/Thanos izleme yığını arac
 Prometheus, her servisten HTTP endpoint'ler üzerinden metrik kazıma (scraping) yaparak zamanlı metrik dizileri oluşturmaktadır.
 Thanos bu yapının üzerine uzun vadeli depolama ve çok bölgeli (multi-region) sorgulama katmanı eklemektedir; bu sayede 18 aylık veri tutarlı biçimde sorgulanabilmektedir.
 
-CloudMon, Prometheus/Thanos'tan saatlik granülarite ile \texttt{metrics.csv} formatında dokuz birincil metriği okumaktadır (\autoref{tab:metrikler}).
-Metrik toplama süreci üç aşamadan oluşmaktadır: (i) Prometheus endpoint'lerinden ham verilerin kazınması, (ii) Thanos sorgu katmanı üzerinden saatlik agregasyonun gerçekleştirilmesi ve (iii) CSV formatına dönüştürülerek CloudMon veri dizinine yazılması.
+Bulut İzleme ve Öneri Sistemi, Prometheus/Thanos'tan saatlik granülarite ile \texttt{metrics.csv} formatında dokuz birincil metriği okumaktadır (\autoref{tab:metrikler}).
+Metrik toplama süreci üç aşamadan oluşmaktadır: (i) Prometheus endpoint'lerinden ham verilerin kazınması, (ii) Thanos sorgu katmanı üzerinden saatlik agregasyonun gerçekleştirilmesi ve (iii) CSV formatına dönüştürülerek Bulut İzleme ve Öneri Sistemi veri dizinine yazılması.
 
 \subsection{Log Toplama: OpenSearch}
 
 OpenStack servis logları OpenSearch platformunda merkezi olarak depolanmaktadır.
 Fluentd log iletim aracı, Nova, Neutron, Cinder ve Keystone servislerinin \texttt{/var/log/} çıktılarını gerçek zamanlı olarak OpenSearch endekslerine aktarmaktadır.
 
-CloudMon log işleme için ham log satırlarını değil, önceden belirlenmiş 15 log tipi üzerinden saatlik pencere bazında hesaplanan sayımları kullanmaktadır (\texttt{log\_features.csv}).
-Bu yaklaşım iki avantaj sağlamaktadır: birincisi, log hacmine bağlı hesaplama maliyetini sabit ve öngörülebilir kılmak; ikincisi, log ayrıştırma (parsing) adımını CloudMon dışında OpenSearch sorgu katmanında gerçekleştirerek pipeline'a temiz ve yapılandırılmış girdi sağlamak.
+Bulut İzleme ve Öneri Sistemi log işleme için ham log satırlarını değil, önceden belirlenmiş 15 log tipi üzerinden saatlik pencere bazında hesaplanan sayımları kullanmaktadır (\texttt{log\_features.csv}).
+Bu yaklaşım iki avantaj sağlamaktadır: birincisi, log hacmine bağlı hesaplama maliyetini sabit ve öngörülebilir kılmak; ikincisi, log ayrıştırma (parsing) adımını Bulut İzleme ve Öneri Sistemi dışında OpenSearch sorgu katmanında gerçekleştirerek pipeline'a temiz ve yapılandırılmış girdi sağlamak.
 
 Saatlik log özellik tablosu şu şekilde üretilmektedir: her saat dilimi için her log tipi, ilgili OpenSearch endeksinde anahtar kelime eşleşmesiyle sorgulanmakta ve bulunan kayıt sayısı tek bir satıra yazılmaktadır.
 Bu işlem \texttt{raw\_logs.csv} içindeki ham log örneklemesiyle desteklenmekte; ön-arıza örüntü çıkarımı (Aşama 4) ham loglar üzerinden çalıştırılmaktadır.
 
 \subsection{Veri Akışı}
 
-\autoref{fig:veriakisi}'de CloudMon'un uçtan uca veri akışı görülmektedir.
+\autoref{fig:veriakisi}'de Bulut İzleme ve Öneri Sisteminin uçtan uca veri akışı görülmektedir.
 OpenStack servisleri → Prometheus/Thanos → \texttt{metrics.csv} hattı metrik verisi sağlarken, OpenStack servisleri → Fluentd → OpenSearch → \texttt{log\_features.csv} hattı log özellik tablosunu üretmektedir.
-Her iki kaynak saatlik granülaritede CloudMon ana pipeline'ına beslenmekte; özellik mühendisliği adımında tek bir 272 boyutlu vektöre birleştirilmektedir.
+Her iki kaynak saatlik granülaritede Bulut İzleme ve Öneri Sistemi ana pipeline'ına beslenmekte; özellik mühendisliği adımında tek bir 272 boyutlu vektöre birleştirilmektedir.
 
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=0.92\textwidth]{metrics_overview}
-    \caption{CloudMon veri akışı: OpenStack servislerinden metrik (Prometheus/Thanos) ve log (Fluentd/OpenSearch) verilerinin toplanması ve pipeline'a beslenmesi.}
+    \caption{Bulut İzleme ve Öneri Sistemi veri akışı: OpenStack servislerinden metrik (Prometheus/Thanos) ve log (Fluentd/OpenSearch) verilerinin toplanması ve pipeline'a beslenmesi.}
     \label{fig:veriakisi}
 \end{figure}
 
@@ -278,7 +278,7 @@ Bu tablodan çıkan kritik bulgular şunlardır: (i) \textit{slow\_response} en 
 \label{sec:ozellik}
 
 Makine öğrenmesi modeli ham metrik ve log değerlerini doğrudan öğrenebilse de geçmişin farklı zaman pencerelerinde kodlanması tahmin başarısını önemli ölçüde artırmaktadır.
-Bu nedenle CloudMon, her değişken için birden fazla temporal temsil üretmektedir: ham değer, hareketli ortalama, hareketli standart sapma, gecikme (lag) ve değişim hızı (delta).
+Bu nedenle Bulut İzleme ve Öneri Sistemi, her değişken için birden fazla temporal temsil üretmektedir: ham değer, hareketli ortalama, hareketli standart sapma, gecikme (lag) ve değişim hızı (delta).
 
 Metrik ve log verilerinden toplam 272 özellik türetilmektedir.
 Bu özellikler altı kategoride sınıflandırılmaktadır:
@@ -474,7 +474,7 @@ SHAP (SHapley Additive exPlanations), kooperatif oyun teorisindeki Shapley değe
 Her özellik için hesaplanan $\phi_i$ değeri şu garantiyi taşımaktadır: tüm özellik atıf değerlerinin toplamı modelin tahmini ile referans değer (eğitim seti ortalaması) arasındaki farka tam olarak eşittir.
 Bu toplamlanabilirlik (additivity) özelliği sayesinde SHAP, ``bu özellik tahmini ne kadar ve hangi yönde etkiledi'' sorusunu tutarlı biçimde yanıtlamaktadır \autocite{lundberg2020}.
 
-CloudMon bu çerçeveyi iki temel amaç için kullanmaktadır.
+Bulut İzleme ve Öneri Sistemi bu çerçeveyi iki temel amaç için kullanmaktadır.
 Birincisi, 272 özellikli yüksek boyutlu uzayda hangi metrik ve log özelliklerinin tahmine gerçekten katkı yaptığını saptamak; böylece hibrit özellik uzayının faydası nicel olarak ölçülmektedir.
 İkincisi, her kapasite uyarısına ``en etkili özellik: \texttt{vm\_count\_rmean\_24h}'' biçiminde bir açıklama eklemek ve bu açıklamayı LLM katmanına iletmek; böylece hem operatöre hem de dile dayalı öneri motoruna bağlam sağlanmaktadır.
 
@@ -511,15 +511,15 @@ Gerçek bir bulut ortamında aynı anda onlarca uyarı tetiklenebilir: bellek e�
 Büyük Dil Modelleri (BDM/LLM), yapılandırılmış bağlam verildiğinde bu sentezi doğal dil akıl yürütmesiyle gerçekleştirebilmektedir.
 LLM, hem sayısal verileri (kullanım oranı, z-skoru, tahmini gün sayısı) hem de niteliksel sinyalleri (SHAP sıralaması, ön-arıza örüntüsü, cascade riski) birden okuyan bir uzman gibi davranmakta; bunları önceliklendirilmiş ve gerekçelendirilmiş aksiyon önerilerine dönüştürmektedir \autocite{brown2020, openai2023, anthropic2024}.
 
-CloudMon'da LLM katmanının iki kritik işlevi vardır.
+Bulut İzleme ve Öneri Sisteminde LLM katmanının iki kritik işlevi vardır.
 Birincisi, kural motorunun ürettiği ayrı uyarıları tek bir tutarlı operasyonel rapora sentezlemek; ikincisi, SHAP'ın sağladığı ``en etkili özellik'' açıklamasını doğal dil bağlamına taşıyarak operatörün tahminin \textit{neden} yapıldığını anlamasını sağlamaktır.
-Bu yaklaşım, CloudMon'u salt bir izleme aracından açıklanabilir ve eyleme dönüştürülebilir bir karar destek sistemine dönüştürmektedir.
+Bu yaklaşım, Bulut İzleme ve Öneri Sistemini salt bir izleme aracından açıklanabilir ve eyleme dönüştürülebilir bir karar destek sistemine dönüştürmektedir.
 
 \subsection{Neden Zenginleştirilmiş Bağlam?}
 
 LLM performansı, aldığı bağlamın kalitesiyle doğrudan ilişkilidir.
 Ham metrik sayıları (``vCPU \%79{,}6, Bellek \%85{,}5'') tek başına bir operasyonel değer taşımaz; modelin bu sayılardan eyleme dönüştürülebilir bir öneri çıkarabilmesi için trendin yönü, beklenen eşik tarihi, log örüntüleri ve SHAP açıklaması gibi bağlam katmanlarına ihtiyacı vardır.
-Bu nedenle CloudMon, LLM'e gönderilen istemde şu bilgi katmanlarını birleştirmektedir:
+Bu nedenle Bulut İzleme ve Öneri Sistemi, LLM'e gönderilen istemde şu bilgi katmanlarını birleştirmektedir:
 
 \begin{maddelendir}[label=--]
     \item Kapasite durumu: mevcut kullanım oranı, eşik değeri, trend ve tahmini aşım tarihi
@@ -619,7 +619,7 @@ LLM katmanı bu puanlamayı giriş bağlamı olarak alarak kendi yorumunu ekler 
 \subsection{Zamana Göre Bölme (Walk-Forward) Stratejisi}
 
 Zaman serileri için geleneksel $k$-kat çapraz doğrulama veri sızıntısı (data leakage) riskini beraberinde getirir: gelecek veriyle geçmişin öğrenilmesi model performansını gerçekçi olmayan biçimde iyileştirir.
-CloudMon bu riski bertaraf etmek için \textit{zamana göre bölme} stratejisi kullanmaktadır.
+Bulut İzleme ve Öneri Sistemi bu riski bertaraf etmek için \textit{zamana göre bölme} stratejisi kullanmaktadır.
 
 Eğitim ve test kümeleri kesişmeyen zaman dilimleriyle tanımlanmaktadır:
 \begin{maddelendir}[label=--]
@@ -667,12 +667,12 @@ Birincisi, 24 saatlik ufukta Doğrusal Regresyon tüm kaynaklarda kazanmaktadır
 
 \subsection{Pipeline Çalıştırma Akışı}
 
-CloudMon pipeline'ı Python 3.11 ile yazılmış olup \texttt{src/} dizinindeki modüller aracılığıyla organize edilmektedir.
+Bulut İzleme ve Öneri Sistemi pipeline'ı Python 3.11 ile yazılmış olup \texttt{src/} dizinindeki modüller aracılığıyla organize edilmektedir.
 Sistemin üretim çalışması \autoref{tab:pipeline-modul}'de listelenen altı modülün sıralı yürütülmesiyle gerçekleşmektedir.
 
 \begin{table}[htbp]
     \centering
-    \caption{CloudMon pipeline modülleri ve sorumlulukları}
+    \caption{Bulut İzleme ve Öneri Sistemi pipeline modülleri ve sorumlulukları}
     \label{tab:pipeline-modul}
     \begin{tabular}{p{3.5cm}p{4.0cm}p{5.5cm}}
         \textbf{Modül} & \textbf{Kaynak Dosya} & \textbf{Sorumluluk} \\
@@ -691,7 +691,7 @@ Bu tasarım, herhangi bir modülün bağımsız olarak yeniden çalıştırılma
 
 \subsection{Yapılandırma ve Parametre Yönetimi}
 
-CloudMon'un tüm ayarlanabilir parametreleri \texttt{config.py} dosyasında merkezi olarak tanımlanmaktadır.
+Bulut İzleme ve Öneri Sisteminin tüm ayarlanabilir parametreleri \texttt{config.py} dosyasında merkezi olarak tanımlanmaktadır.
 Bu parametreler üç kategoriye ayrılmaktadır:
 
 \begin{maddelendir}[label=--]
@@ -704,7 +704,7 @@ Bu merkezi yapılandırma, sistemin farklı OpenStack cluster yapılandırmalar�
 
 \subsection{Çıktı Formatı ve Raporlama}
 
-CloudMon her çalışmada üç tür çıktı üretmektedir:
+Bulut İzleme ve Öneri Sistemi her çalışmada üç tür çıktı üretmektedir:
 
 \textbf{Makine tarafından okunabilir çıktılar} (\texttt{output/} dizini altında JSON formatında):
 \begin{maddelendir}[label=--]

@@ -1,10 +1,26 @@
 \chapter{BULGULAR}
 \label{ch:bulgular}
 
-Bu bölümde CloudMon sisteminin OpenStack tabanlı gerçek bulut altyapısı üzerindeki deneysel sonuçları sunulmaktadır.
+Bu bölümde Bulut İzleme ve Öneri Sisteminin OpenStack tabanlı gerçek bulut altyapısı üzerindeki deneysel sonuçları sunulmaktadır.
 İlk olarak 18 aylık eğitim döneminin kapasite kullanım trendleri analiz edilmekte; ardından 42 regresyon modelinin test kümesindeki performansları karşılaştırılmaktadır.
 Daha sonra SHAP açıklanabilirlik analizi, log işleme pipeline bulguları ve LLM öneri motoru çıktıları incelenmektedir.
 Son bölümde tahmin modellerine dayalı ileriye dönük kapasite projeksiyonları sunulmaktadır.
+
+
+\section{Veri Kalitesi ve Ön İşleme Değerlendirmesi}
+\label{sec:veri-kalite}
+
+Test öncesinde veri kümesinin kalitesi sistematik biçimde incelenmiştir.
+18 aylık ham metrik verisinde eksik değer oranı \%0{,}83 (13\,104 gözlemde 109 eksik nokta) olarak ölçülmüş; bu oranın tamamı 3 saati aşmayan kesintilerden kaynaklanmaktadır.
+Doğrusal enterpolasyon ile bu boşluklar doldurulmuştur.
+Enterpolasyon, kesinti süresinin 3 saati aşmadığı durumlarda güvenilir bir yaklaşım sunmaktadır; zira bulut altyapısında kaynak kullanım serileri bu ölçekte düzgün değişim göstermektedir.
+
+Log özellik tablosunda ise eksik değer bulunmamaktadır.
+Bu durum, OpenSearch toplulaştırma sorgularının bir veri noktası üretemediği saatlerde sıfır döndürmesi sayesinde sağlanmaktadır; bu tasarım kararı, log sayımının gerçekten sıfır mı yoksa eksik mi olduğu sorusunu ortadan kaldırmaktadır.
+
+Aykırı değer analizi Winsorization (\%1--\%99 yüzdelik dilim) ile gerçekleştirilmiştir.
+\texttt{api\_latency\_ms} değişkeninde \%0{,}4 oranında (55 gözlem) 99. yüzdelik dilimi aşan yüksek değer tespit edilmiş ve budanmıştır.
+Bu değerlerin büyük bölümünün gece bakım pencereleriyle (Cuma 02:00--04:00) örtüşmesi, aykırı değerlerin gerçek bir anomali değil tekrarlayan operasyonel örüntü olduğunu göstermektedir.
 
 
 \section{Eğitim Dönemi Kapasite Kullanım Analizi}
@@ -504,15 +520,15 @@ Model bu bağlamı bütünsel olarak değerlendirerek servis bazında öncelikle
     \label{fig:llm-output}
 \end{figure}
 
-Bu yanıt, CloudMon'un farklı analiz katmanlarını (kapasite tahmini, SHAP açıklaması, log anomali tespiti, cascade risk) birbirine bağlayan bütünsel bir operasyonel değerlendirme sunmaktadır.
+Bu yanıt, Bulut İzleme ve Öneri Sisteminin farklı analiz katmanlarını (kapasite tahmini, SHAP açıklaması, log anomali tespiti, cascade risk) birbirine bağlayan bütünsel bir operasyonel değerlendirme sunmaktadır.
 Kural tabanlı motorun tespit ettiği dokuz uyarı (2 KRİTİK, 7 UYARI), LLM tarafından öncelikli aksiyon sırasına dönüştürülmekte; her öneri hem tahmin hem açıklanabilirlik hem de log kanıtıyla gerekçelendirilmektedir.
-Bu yapı, CloudMon'un bir izleme aracı olmanın ötesine geçerek açıklanabilir ve eyleme dönüştürülebilir öneriler üreten bir operasyonel zekâ sistemi olduğunu göstermektedir.
+Bu yapı, Bulut İzleme ve Öneri Sisteminin bir izleme aracı olmanın ötesine geçerek açıklanabilir ve eyleme dönüştürülebilir öneriler üreten bir operasyonel zekâ sistemi olduğunu göstermektedir.
 
 
 \section{İleriye Dönük Kapasite Projeksiyonları}
 \label{sec:projeksiyon}
 
-Test döneminin son gözlem noktası olan 2026-06-30 itibarıyla CloudMon, mevcut büyüme trendleri ve tahmin modelleri kullanılarak 3--6 aylık ileriye dönük kapasite projeksiyonu üretmektedir.
+Test döneminin son gözlem noktası olan 2026-06-30 itibarıyla Bulut İzleme ve Öneri Sistemi, mevcut büyüme trendleri ve tahmin modelleri kullanılarak 3--6 aylık ileriye dönük kapasite projeksiyonu üretmektedir.
 
 \subsection{Kapasite Dolum Tarihleri}
 
@@ -546,12 +562,12 @@ Bu durumda vCPU ve Bellek büyüme hızları sırasıyla \%0{,}4 ve \%0{,}25'e �
 Log tabanlı erken uyarı sisteminin bu artışı 68 saat öncesinde \texttt{slow\_response} log artışıyla sinyalize edeceği beklenmektedir.
 
 \textbf{Müdahale Etkisi:} Bellek kullanımının \%85{,}5 düzeyinde sabitlenmesi (büyüme durduğunu varsayarsak) eşim tarihi belirsizleşir ve alarm geçersiz hâle gelir.
-CloudMon bu senaryoyu müdahalenin başarılı olduğu biçiminde yorumlar ve operatöre ``Bellek büyüme trendi yavaşladı: öneri başarıyla uygulandı'' mesajını üretir.
+Bulut İzleme ve Öneri Sistemi bu senaryoyu müdahalenin başarılı olduğu biçiminde yorumlar ve operatöre ``Bellek büyüme trendi yavaşladı: öneri başarıyla uygulandı'' mesajını üretir.
 
 \subsection{Model Tahmin Aralığı Değerlendirmesi}
 
 Noktasal tahmin ötesinde güven aralığı (confidence interval) bilgisi operasyonel kararlar için kritik önem taşımaktadır.
-CloudMon mevcut sürümünde noktasal tahmin üretmektedir; bu durum sınırlılıklar arasında değerlendirilmektedir (\autoref{sec:sonuc-sinirliliklar}).
+Bulut İzleme ve Öneri Sistemi mevcut sürümünde noktasal tahmin üretmektedir; bu durum sınırlılıklar arasında değerlendirilmektedir (\autoref{sec:sonuc-sinirliliklar}).
 
 Bununla birlikte, test kümesindeki RMSE değerlerinden yaklaşık bir güven aralığı oluşturulabilmektedir.
 vCPU 24 saatlik tahmin için RMSE\,=\,1{,}29 yüzde puan olduğundan, $\pm 2 \cdot \text{RMSE}$ olarak hesaplanan yaklaşık \%95 güven aralığı $\pm$2{,}6 yüzde puan genişliğindedir.
@@ -563,7 +579,7 @@ Bu aralık, 74 günlük dolum tarihi tahmininin gerçekte 65--83 gün aralığı
 
 \subsection{Log Risk Skoru Hesaplama Yöntemi}
 
-CloudMon log işleme pipeline'ının 4. aşamasında her OpenStack servisi için bir \textit{log risk skoru} hesaplanmaktadır.
+Bulut İzleme ve Öneri Sistemi log işleme pipeline'ının 4. aşamasında her OpenStack servisi için bir \textit{log risk skoru} hesaplanmaktadır.
 Bu skor, servisin mevcut log aktivitesini tarihsel normla kıyaslayan, 0--1 aralığında normalize edilmiş bir sağlık göstergesidir.
 
 Risk skoru iki bileşenden oluşmaktadır:
@@ -635,7 +651,7 @@ Kısa vadeli proaktif yaklaşımın üretim ortamındaki değeri bu tablo üzeri
 \subsection{Log Risk Skoru ile Kapasite Tahmini Korelasyonu}
 
 Log risk skorunun kapasite tahmin modeline katkısını nicel olarak değerlendirmek amacıyla iki ayrı model karşılaştırılmıştır:
-(i) yalnızca metrik özellikleri kullanan \textit{temel model} ve (ii) log özelliklerini de içeren \textit{hibrit model} (CloudMon'un gerçek modeli).
+(i) yalnızca metrik özellikleri kullanan \textit{temel model} ve (ii) log özelliklerini de içeren \textit{hibrit model} (Bulut İzleme ve Öneri Sisteminin gerçek modeli).
 
 vCPU 24 saatlik tahmin üzerinde gerçekleştirilen bu ablasyon deneyinin sonuçları \autoref{tab:ablasyon}'de verilmektedir.
 

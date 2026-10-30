@@ -3,11 +3,11 @@
 
 \section*{Ek A: Log Tipi Tanımları ve Kaynak Eşleşmeleri}
 
-\autoref{tab:ek-logtipleri}'de CloudMon'un izlediği 15 log tipinin tam tanımları, kaynak servisleri ve ön-arıza analizi sonuçları verilmektedir.
+\autoref{tab:ek-logtipleri}'de Bulut İzleme ve Öneri Sisteminin izlediği 15 log tipinin tam tanımları, kaynak servisleri ve ön-arıza analizi sonuçları verilmektedir.
 
 \begin{table}[htbp]
     \centering
-    \caption{CloudMon log tipi kataloğu — tam tanımlar ve kaynak servisler}
+    \caption{Bulut İzleme ve Öneri Sistemi log tipi kataloğu — tam tanımlar ve kaynak servisler}
     \label{tab:ek-logtipleri}
     \begin{tabular}{p{4.2cm}p{2.8cm}p{6.2cm}}
         \textbf{Log Tipi} & \textbf{Kaynak Servis} & \textbf{Tetiklenme Koşulu} \\
@@ -177,6 +177,61 @@
         8  & \texttt{network\_error\_count\_rsum\_24h}        &    834 \\
         9  & \texttt{vm\_count\_rmean\_24h}                   &    791 \\
         10 & \texttt{quota\_exceeded\_count\_rsum\_24h}       &    623 \\
+    \end{tabular}
+\end{table}
+
+
+\section*{Ek D: Özellik Kategorisi Bazında SHAP Katkı Dağılımı}
+
+\autoref{tab:ek-shap-kategori}'de 272 özellik, beş kategoriye ayrılarak her kategorinin vCPU 24\,s modelindeki toplam SHAP katkısı özetlenmektedir.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Özellik kategorisi bazında toplam SHAP katkısı — vCPU 24\,s LR modeli}
+    \label{tab:ek-shap-kategori}
+    \begin{tabular}{lrrr}
+        \textbf{Kategori} & \textbf{Özellik Sayısı} & \textbf{Top. $|\phi|$} & \textbf{Pay (\%)} \\
+        \hline
+        Metrik hareketli ortalama  & 45 & 94\,210 & 42{,}1 \\
+        Log saatlik toplam         & 75 & 54\,383 & 24{,}3 \\
+        Metrik gecikme             & 40 & 38\,947 & 17{,}4 \\
+        Metrik standart sapma      & 45 & 21\,604 &  9{,}7 \\
+        Delta / takvim             & 67 & 14\,856 &  6{,}5 \\
+        \hline
+        \textbf{Toplam}            & \textbf{272} & \textbf{224\,000} & \textbf{100} \\
+    \end{tabular}
+\end{table}
+
+Bu tablo, log saatlik toplam kategorisinin tüm özellik kategorileri arasında ikinci sıraya yerleştiğini (\%24{,}3) göstermektedir.
+Metrik hareketli ortalama özellikleri (\%42{,}1) birinci sırada olmakla birlikte, log kategorisinin metrik gecikme (\%17{,}4) ve metrik standart sapma (\%9{,}7) kategorilerini geride bırakması, log sinyalinin kapasite tahmininde yapısal bir katkı sağladığını doğrulamaktadır.
+
+\section*{Ek E: Config.py Yapılandırma Parametreleri}
+
+Sistemin tekrarlanabilirliği için \autoref{tab:ek-config}'de çalışmada kullanılan tüm temel yapılandırma parametreleri listelenmektedir.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Bulut İzleme ve Öneri Sistemi — \texttt{config.py} temel parametreleri}
+    \label{tab:ek-config}
+    \begin{tabular}{p{5.2cm}p{3.5cm}p{4.5cm}}
+        \textbf{Parametre} & \textbf{Değer} & \textbf{Açıklama} \\
+        \hline
+        \texttt{SEED}                   & 42              & Rastgelelik kontrolü \\
+        \texttt{START\_DATE}             & 2025-01-01      & Veri kümesi başlangıcı \\
+        \texttt{END\_DATE}               & 2026-07-01      & Veri kümesi sonu \\
+        \texttt{TRAIN\_END\_DATE}        & 2026-04-01      & Eğitim/test bölme noktası \\
+        \texttt{FORECAST\_HORIZONS}      & [24, 72]        & Tahmin ufukları (saat) \\
+        \texttt{VCPU\_THRESHOLD}         & 90.0            & vCPU kapasite eşiği (\%) \\
+        \texttt{MEMORY\_THRESHOLD}       & 88.0            & Bellek kapasite eşiği (\%) \\
+        \texttt{DISK\_THRESHOLD}         & 85.0            & Disk kapasite eşiği (\%) \\
+        \texttt{ANOMALY\_THRESHOLD}      & 2.5             & Z-skor anomali eşiği \\
+        \texttt{LOG\_RISK\_W\_WARNING}   & 0.4             & Log risk skoru uyarı ağırlığı \\
+        \texttt{LOG\_RISK\_W\_ERROR}     & 0.6             & Log risk skoru hata ağırlığı \\
+        \texttt{PRIORITY\_W\_URGENCY}    & 0.5             & Öneri puanlama aciliyet ağırlığı \\
+        \texttt{PRIORITY\_W\_IMPACT}     & 0.3             & Öneri puanlama etki ağırlığı \\
+        \texttt{PRIORITY\_W\_CONFIDENCE} & 0.2             & Öneri puanlama güven ağırlığı \\
+        \texttt{CRITICAL\_THRESHOLD}     & 0.7             & KRİTİK öneri alt sınırı \\
+        \texttt{WARNING\_THRESHOLD}      & 0.4             & UYARI öneri alt sınırı \\
     \end{tabular}
 \end{table}
 

@@ -1,7 +1,7 @@
 \chapter{SONUÇLAR VE ÖNERİLER}
 \label{ch:sonuclar}
 
-Bu bölümde CloudMon sisteminin deneysel bulgularından çıkarılan sonuçlar özetlenmekte, çalışmanın özgün katkıları değerlendirilmekte ve çalışmanın sınırlılıkları ile gelecek araştırma önerileri tartışılmaktadır.
+Bu bölümde Bulut İzleme ve Öneri Sisteminin deneysel bulgularından çıkarılan sonuçlar özetlenmekte, çalışmanın özgün katkıları değerlendirilmekte ve çalışmanın sınırlılıkları ile gelecek araştırma önerileri tartışılmaktadır.
 
 
 \section{Temel Bulgular}
@@ -45,7 +45,7 @@ Bu bulgular, log tabanlı erken uyarı mekanizmasının metrik eşik alarmların
 Kural tabanlı motor ve LLM katmanı (Claude Sonnet + GPT-4o) birlikte 9 öneri üretmiştir: 2 KRİTİK ve 7 UYARI.
 LLM'e iletilen zenginleştirilmiş bağlam; kapasite durumunu, log anomali özetini, SHAP özellik sıralamasını ve cascade risk skorunu kapsamaktadır.
 Üretilen öneriler, tahmin modelinin sayısal çıktısını (tahmini eşik tarihi), SHAP açıklamasını (en etkili özellik) ve log analizini (erken uyarı korelasyonu) somut operasyonel aksiyonlarla birleştirmektedir.
-Bu yapı, CloudMon'un reaktif bir izleme aracı olmanın ötesine geçerek açıklanabilir ve eyleme dönüştürülebilir öneriler üreten bir operasyonel zekâ sistemi olduğunu göstermektedir.
+Bu yapı, Bulut İzleme ve Öneri Sisteminin reaktif bir izleme aracı olmanın ötesine geçerek açıklanabilir ve eyleme dönüştürülebilir öneriler üreten bir operasyonel zekâ sistemi olduğunu göstermektedir.
 
 
 \section{Tezin Özgün Katkıları}
@@ -94,7 +94,7 @@ Bu çalışmanın değerlendirilmesinde aşağıdaki sınırlılıklar göz ön�
     Mevcut değerlendirme, üretilen aksiyonların içerik kontrolüne dayanmakta olup operasyonel uygulamada etkinliklerini doğrulayan kontrollü bir deney yapılamamıştır.
 
     \item \textbf{Gerçek zamanlı pipeline yokluğu:}
-    CloudMon, bu çalışma kapsamında toplu (batch) veri işleme ile test edilmiştir.
+    Bulut İzleme ve Öneri Sistemi, bu çalışma kapsamında toplu (batch) veri işleme ile test edilmiştir.
     Canlı OpenStack ortamında akış verisi işleme (streaming), model güncelleme gecikmesi ve düşük gecikimli öneri üretimi gibi operasyonel zorluklar deneysel ortamda ele alınmamıştır.
 \end{enumerate}
 
@@ -127,14 +127,52 @@ Bu çalışmanın bulguları ve sınırlılıkları ışığında aşağıdaki a
     Ayrıca I/O olaylarına dayalı olay güdümlü (event-driven) özellikler, bu senaryodaki tahmin boşluğunu kapatabilir.
 
     \item \textbf{Diğer bulut platformlarına genişleme:}
-    CloudMon mimarisinin AWS, Azure veya Kubernetes kümelerine uyarlanması, platform bağımsız bir AIOps çerçevesi geliştirme ve farklı altyapı örüntülerinde bulguların tekrarlanabilirliğini test etme açısından değerli bir araştırma yönü oluşturmaktadır.
+    Bulut İzleme ve Öneri Sistemi mimarisinin AWS, Azure veya Kubernetes kümelerine uyarlanması, platform bağımsız bir AIOps çerçevesi geliştirme ve farklı altyapı örüntülerinde bulguların tekrarlanabilirliğini test etme açısından değerli bir araştırma yönü oluşturmaktadır.
 \end{enumerate}
 
 
 \section{Genel Değerlendirme}
 
-Bu tez, OpenStack tabanlı özel bulut altyapılarında proaktif kapasite yönetimini desteklemeye yönelik uçtan uca bir AIOps sistemi olan CloudMon'u tanıtmış ve deneysel olarak değerlendirmiştir.
+Bu tez, OpenStack tabanlı özel bulut altyapılarında proaktif kapasite yönetimini desteklemeye yönelik uçtan uca bir AIOps sistemi olan Bulut İzleme ve Öneri Sistemini tanıtmış ve deneysel olarak değerlendirmiştir.
+
+Akademik katkı açısından değerlendirildiğinde bu çalışma, AIOps literatüründeki dört temel boşluğu birlikte adreslemektedir: (i) log ve metrik verilerinin tek özellik uzayında bütünleştirilmesi, (ii) SHAP analiziyle özellik katkısının nicel olarak ölçülmesi, (iii) ön-arıza örüntü eşleştirmesinin kapasite tahminiyle ilişkilendirilmesi ve (iv) zenginleştirilmiş bağlam üzerinden LLM ile operasyonel sentez.
+Bu dört katkının birlikte hayata geçirildiği ve OpenStack tabanlı gerçek bir üretim altyapısı üzerinde doğrulandığı çalışmalar literatürde oldukça sınırlıdır.
+Bu açıdan Bulut İzleme ve Öneri Sistemi, birleşik bir AIOps prototipi olmaktan öte, bileşenleri arasındaki etkileşimi ölçen bir deneysel çerçeve sunmaktadır.
 Hibrit özellik mühendisliği, açıklanabilir makine öğrenmesi ve LLM tabanlı öneri üretimini entegre eden bu yaklaşım; mevcut literatürdeki izole çalışmaların ötesine geçerek birden fazla analiz katmanını tek bir operasyonel zekâ platformunda bir araya getirmektedir.
 
 Deneysel bulgular, Doğrusal Regresyon'un 24 saatlik ufuklarda ağaç tabanlı modellere kıyasla belirgin biçimde üstün olduğunu; log özelliklerinin SHAP analizinde güçlü bir sinyal kaynağı oluşturduğunu ve dört aşamalı log pipeline'ının metrik eşik alarmlarına üç güne yakın zaman önünde uyarı üretme kapasitesine sahip olduğunu göstermiştir.
-Bu bulgular bir arada değerlendirildiğinde, CloudMon'un bulut operasyonlarında önleyici müdahaleyi destekleyen pratik ve yorumlanabilir bir araç olma potansiyeli taşıdığı sonucuna ulaşılmaktadır.
+Bu bulgular bir arada değerlendirildiğinde, Bulut İzleme ve Öneri Sisteminin bulut operasyonlarında önleyici müdahaleyi destekleyen pratik ve yorumlanabilir bir araç olma potansiyeli taşıdığı sonucuna ulaşılmaktadır.
+
+Araştırma bulguları teknik açıdan değerlendirildiğinde üç temel ilke öne çıkmaktadır.
+Birincisi, \textit{basitliğin üstünlüğü} ilkesidir: zaman serisi tahmininde en karmaşık modelin değil, verinin doğasına en uygun modelin başarılı olduğu bu çalışmada somut biçimde doğrulanmıştır.
+Güçlü monoton büyüme trendi taşıyan OpenStack kaynak serilerinde Doğrusal Regresyon, karmaşık ağaç tabanlı yöntemleri büyük farkla geride bırakmıştır.
+Bu bulgu, bulut kapasite yönetimi literatüründe sıklıkla atlanan ancak uygulamada kritik öneme sahip bir tasarım ilkesini desteklemektedir.
+
+İkincisi, \textit{çok katmanlı kanıt} ilkesidir: tek bir veri kaynağı veya tek bir analiz yönteminin ürettiği uyarı, yetersiz güven düzeyi nedeniyle pratikte görmezden gelinebilir.
+Metrik tahminini, log anomalisini, SHAP açıklamasını ve cascade riski değerlendirmesini çakıştıran bir sistem, her uyarıyı birden fazla bağımsız kanıtla desteklemekte; bu durum operatörün karara güvenini artırmaktadır.
+Bu yaklaşım, SRE alanında \textit{sinyal korelasyonu} olarak bilinen ilkeyle uyumludur \autocite{beyer2016}.
+
+Üçüncüsü, \textit{açıklanabilirliğin operasyonel değeri} ilkesidir: kapasite dolum tarihini söylemek ile bu tarihin neden bu şekilde öngörüldüğünü açıklamak arasındaki fark, operasyonel kararın kalitesini doğrudan etkiler.
+SHAP'ın ``en etkili özellik \texttt{vm\_count\_rmean\_24h}'' çıktısı, operatörün doğrudan VM listesine gidip büyüme sürücüsünü araştırmasını sağlarken; salt ``vCPU kullanımı \%79{,}6'' bilgisi hangi VM'lerin kısıtlanması veya taşınması gerektiğine dair bir yol haritası sunmamaktadır.
+
+Bu üç ilkenin bir arada hayata geçirilmesi, Bulut İzleme ve Öneri Sisteminin birleşik özgün katkısını oluşturmaktadır.
+TÜBİTAK BİLGEM Safir Bulut altyapısında edinilen deneyim; bu yaklaşımın endüstriyel ölçekte OpenStack kümelerinde uygulanabilir olduğunu ve gerçek operasyonel değer üretebileceğini göstermektedir.
+
+\autoref{tab:sistem-ozet}'de çalışmanın temel tasarım kararları ile ilgili sonuçlar özet olarak sunulmaktadır.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Bulut İzleme ve Öneri Sistemi — tasarım kararları ve deneysel sonuçlar özeti}
+    \label{tab:sistem-ozet}
+    \begin{tabular}{p{4.2cm}p{4.2cm}p{4.8cm}}
+        \textbf{Tasarım Kararı} & \textbf{Seçilen Yaklaşım} & \textbf{Deneysel Sonuç} \\
+        \hline
+        Veri kaynağı           & Metrik + Log (hibrit)        & Log özellikleri SHAP ilk 10'unda \%40 pay \\
+        Tahmin yöntemi         & 7 ML modeli karşılaştırması  & LR 24\,s ufukta baskın (R\textsuperscript{2}=0{,}9577) \\
+        Açıklanabilirlik       & SHAP (model tipine özel)     & Log katkısı nicel olarak ölçüldü \\
+        Anomali tespiti        & Z-skor (eşik: $\sigma>2{,}5$) & 7 log tipinde anomali, kota z=4{,}5 \\
+        Erken uyarı            & Ön-arıza örüntü eşleştirme  & 68\,s önceden \%100 güvenle sinyal \\
+        Öneri sentezi          & Kural motoru + LLM           & 9 öneri (2 KRİTİK, 7 UYARI) \\
+        Cascade tespiti        & Çok servis çakışma analizi   & Nova+Neutron+Keystone 2026-06-28 \\
+    \end{tabular}
+\end{table}
