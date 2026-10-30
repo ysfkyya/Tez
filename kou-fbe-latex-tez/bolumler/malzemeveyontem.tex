@@ -1,7 +1,7 @@
 \chapter{MALZEME VE YÖNTEM}
 \label{ch:malzemeveyontem}
 
-Bu bölümde CloudMon sisteminin mimarisi, kullanılan veri kümesi, log işleme pipeline'ı, özellik mühendisliği, kapasite tahmin modelleri, SHAP analizi ve öneri motoru ayrıntılı olarak açıklanmaktadır.
+Bu bölümde CloudMon sisteminin geliştirildiği OpenStack deney ortamı, veri toplama altyapısı, sistem mimarisi, log işleme pipeline'ı, özellik mühendisliği, kapasite tahmin modelleri, SHAP analizi ve öneri motoru ayrıntılı olarak açıklanmaktadır.
 
 
 \section{Sistem Mimarisi}
@@ -25,6 +25,64 @@ Pipeline adımları sırasıyla şunlardır:
     \item \textbf{SHAP Analizi:} Her model için özellik atıf değerleri hesaplanır (bkz. \autoref{sec:shap}).
     \item \textbf{Öneri Üretimi:} Kural tabanlı motor ve LLM çıktıları birleştirilerek operasyonel rapor oluşturulur (bkz. \autoref{sec:oneri}).
 \end{maddelendir}
+
+
+\section{Deney Ortamı ve Veri Toplama Altyapısı}
+\label{sec:ortam}
+
+\subsection{OpenStack Altyapısı}
+
+CloudMon, TÜBİTAK BİLGEM bünyesinde geliştirilen OpenStack tabanlı özel bulut platformu üzerinde çalıştırılmıştır.
+OpenStack, açık kaynak kodlu, modüler bir bulut işletim sistemi olup işlem, depolama ve ağ kaynaklarını API aracılığıyla yazılım katmanından yönetmeye olanak tanımaktadır \autocite{openstack2024}.
+Bu çalışmada dört temel OpenStack servisi izleme kapsamına alınmıştır:
+
+\begin{maddelendir}[label=--]
+    \item \textbf{Nova (Compute):} Sanal makine yaşam döngüsünü yöneten işlem servisi.
+    Kapasite açısından en kritik bileşendir: vCPU ve bellek kaynaklarının tahsisi, VM başlatma/durdurma işlemleri ve zamanlayıcı (scheduler) kararları bu servis tarafından gerçekleştirilmektedir.
+    Nova, \texttt{nova-api}, \texttt{nova-compute} ve \texttt{nova-scheduler} alt servislerinden oluşmaktadır; bu alt servisler bağımsız olarak izlenmekte ve servis sağlık skorlarına ayrı ayrı katkı sağlamaktadır.
+
+    \item \textbf{Neutron (Network):} Sanal ağları, alt ağları, yönlendiriciyi ve güvenlik gruplarını yöneten ağ servisidir.
+    VM'ler arası ve dış ağ iletişimini sağlar; bant genişliği ve ağ hatası metrikleri bu servis üzerinden izlenmektedir.
+
+    \item \textbf{Cinder (Block Storage):} Sanal makinelere bağlanan kalıcı blok depolama birimlerini yöneten depolama servisidir.
+    Disk I/O hatası ve depolama kullanım oranı metrikleri Cinder bileşeninden elde edilmektedir.
+
+    \item \textbf{Keystone (Identity):} Kullanıcı kimlik doğrulama, proje kota yönetimi ve servisler arası yetkilendirmeyi sağlayan kimlik servisidir.
+    Kimlik doğrulama hataları ve kota aşımı uyarıları Keystone loglarından türetilmektedir.
+\end{maddelendir}
+
+\subsection{Metrik Toplama: Prometheus ve Thanos}
+
+OpenStack servislerinden metrik verisi, Prometheus/Thanos izleme yığını aracılığıyla saatlik aralıklarla toplanmaktadır.
+Prometheus, her servisten HTTP endpoint'ler üzerinden metrik kazıma (scraping) yaparak zamanlı metrik dizileri oluşturmaktadır.
+Thanos bu yapının üzerine uzun vadeli depolama ve çok bölgeli (multi-region) sorgulama katmanı eklemektedir; bu sayede 18 aylık veri tutarlı biçimde sorgulanabilmektedir.
+
+CloudMon, Prometheus/Thanos'tan saatlik granülarite ile \texttt{metrics.csv} formatında dokuz birincil metriği okumaktadır (\autoref{tab:metrikler}).
+Metrik toplama süreci üç aşamadan oluşmaktadır: (i) Prometheus endpoint'lerinden ham verilerin kazınması, (ii) Thanos sorgu katmanı üzerinden saatlik agregasyonun gerçekleştirilmesi ve (iii) CSV formatına dönüştürülerek CloudMon veri dizinine yazılması.
+
+\subsection{Log Toplama: OpenSearch}
+
+OpenStack servis logları OpenSearch platformunda merkezi olarak depolanmaktadır.
+Fluentd log iletim aracı, Nova, Neutron, Cinder ve Keystone servislerinin \texttt{/var/log/} çıktılarını gerçek zamanlı olarak OpenSearch endekslerine aktarmaktadır.
+
+CloudMon log işleme için ham log satırlarını değil, önceden belirlenmiş 15 log tipi üzerinden saatlik pencere bazında hesaplanan sayımları kullanmaktadır (\texttt{log\_features.csv}).
+Bu yaklaşım iki avantaj sağlamaktadır: birincisi, log hacmine bağlı hesaplama maliyetini sabit ve öngörülebilir kılmak; ikincisi, log ayrıştırma (parsing) adımını CloudMon dışında OpenSearch sorgu katmanında gerçekleştirerek pipeline'a temiz ve yapılandırılmış girdi sağlamak.
+
+Saatlik log özellik tablosu şu şekilde üretilmektedir: her saat dilimi için her log tipi, ilgili OpenSearch endeksinde anahtar kelime eşleşmesiyle sorgulanmakta ve bulunan kayıt sayısı tek bir satıra yazılmaktadır.
+Bu işlem \texttt{raw\_logs.csv} içindeki ham log örneklemesiyle desteklenmekte; ön-arıza örüntü çıkarımı (Aşama 4) ham loglar üzerinden çalıştırılmaktadır.
+
+\subsection{Veri Akışı}
+
+\autoref{fig:veriakisi}'de CloudMon'un uçtan uca veri akışı görülmektedir.
+OpenStack servisleri → Prometheus/Thanos → \texttt{metrics.csv} hattı metrik verisi sağlarken, OpenStack servisleri → Fluentd → OpenSearch → \texttt{log\_features.csv} hattı log özellik tablosunu üretmektedir.
+Her iki kaynak saatlik granülaritede CloudMon ana pipeline'ına beslenmekte; özellik mühendisliği adımında tek bir 272 boyutlu vektöre birleştirilmektedir.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.92\textwidth]{metrics_overview}
+    \caption{CloudMon veri akışı: OpenStack servislerinden metrik (Prometheus/Thanos) ve log (Fluentd/OpenSearch) verilerinin toplanması ve pipeline'a beslenmesi.}
+    \label{fig:veriakisi}
+\end{figure}
 
 
 \section{Veri Kümesi}
@@ -88,8 +146,24 @@ Pipeline çıktısı \autoref{fig:logpipeline}'de görselleştirilmektedir.
 
 \subsection{Aşama 1 — Ayrıştırma ve Sınıflandırma}
 
-Bu aşamada ham log sayımları Nova, Neutron, Cinder ve Keystone servisleri bazında servis sağlık skorlarına dönüştürülmektedir.
-Her servis için normalize hata skoru $[0, 1]$ aralığında hesaplanmakta; eşiği aşan servisler \textit{degraded} veya \textit{critical} olarak işaretlenmektedir.
+Bu aşamada ham log sayımları Nova, Neutron, Cinder ve Keystone servisleri bazında servis sağlık skorlarına dönüştürülmekte; erken uyarı ve hata logları ayrı ayrı değerlendirilmektedir.
+
+Her servis için normalize hata skoru $s_j \in [0, 1]$ hesaplanmaktadır:
+\begin{equation}
+    s_j = \min\!\left(\frac{n_j}{q_{99}(n_j) + \epsilon},\; 1\right)
+    \label{eq:servis-skor}
+\end{equation}
+burada $n_j$ servis $j$'nin saatlik hata sayısını, $q_{99}$ \%99'luk dilimi ve $\epsilon$ sıfıra bölmeyi önleyen küçük bir sabiti temsil etmektedir.
+
+Bileşik log risk skoru ise erken uyarı ve hata bileşenlerinin ağırlıklı toplamı olarak tanımlanmaktadır:
+\begin{equation}
+    r_{\text{log}} = 0{,}4 \cdot s_{\text{uyarı}} + 0{,}6 \cdot s_{\text{hata}}
+    \label{eq:log-risk}
+\end{equation}
+Ağırlıklar; erken uyarı sinyallerinin yüksek hacimli ama düşük öncelikli, hata loglarının ise düşük hacimli ama yüksek öncelikli olduğu kabulünü yansıtmaktadır.
+$r_{\text{log}} \in [0, 1]$ aralığında normalize edilmektedir.
+
+Eşiği aşan servisler ($s_j > 0{,}7$: \textit{degraded}; $s_j > 0{,}9$: \textit{critical}) olarak işaretlenmekte ve bu sınıflandırma cascade risk tespitinde (Aşama 3) kullanılmaktadır.
 
 \subsection{Aşama 2 — Zamansal Agregasyon ve Trend Analizi}
 
@@ -157,6 +231,27 @@ Her (kaynak, ufuk) çifti için yedi farklı algoritma eğitilmekte; böylece $3
 \end{enumerate}
 
 LR ve MLP modelleri için StandardScaler uygulanmaktadır; ağaç tabanlı modeller (RF, GBT, XGB, LGBM, CatBoost) normalizasyon gerektirmemektedir.
+Model hiperparametreleri \autoref{tab:hiperparametre}'de özetlenmektedir.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Kapasite tahmin modelleri hiperparametreleri}
+    \label{tab:hiperparametre}
+    \begin{tabular}{lll}
+        \textbf{Model} & \textbf{Temel Hiperparametreler} & \textbf{Ön İşleme} \\
+        \hline
+        Doğrusal Regresyon & — (varsayılan) & StandardScaler \\
+        Rastgele Orman     & \texttt{n\_est=200, max\_depth=12, min\_leaf=4} & — \\
+        Gradyan Artırmalı  & \texttt{n\_est=200, depth=5, lr=0.08, sub=0.85} & — \\
+        XGBoost            & \texttt{n\_est=200, depth=5, lr=0.08, sub=0.85} & — \\
+        LightGBM           & \texttt{n\_est=200, depth=5, lr=0.08, sub=0.85} & — \\
+        CatBoost           & \texttt{iter=200, depth=5, lr=0.08, sub=0.85}   & — \\
+        MLP                & \texttt{layers=(128,64), relu, max\_iter=500, early\_stop} & StandardScaler \\
+    \end{tabular}
+\end{table}
+
+Tüm ağaç tabanlı modellerde \texttt{random\_state=42} sabitlenmiş; tekrarlanabilirlik sağlanmıştır.
+MLP'de erken durdurma (early stopping) ile aşırı öğrenme önlenmektedir.
 
 Tüm modeller yinelemeli tahmin (iterative forecasting) stratejisiyle değerlendirilmektedir.
 Her test noktasında yalnızca o ana kadar gözlemlenen veri kullanılmakta; böylece gerçek zamanlı operasyonel kullanım koşulları simüle edilmektedir.
