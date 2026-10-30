@@ -295,18 +295,85 @@ Kapasite durum özeti şöyledir: vCPU \%79{,}6 (eşik \%90{,}0, tahmini aşım 
     \end{tabular}
 \end{table}
 
-LLM katmanında Claude Sonnet (\texttt{claude-sonnet-4-6}) ve GPT-4o'ya iletilen zenginleştirilmiş istem; kapasite durumunu, log anomali özetini, SHAP özellik sıralamasını, ön-arıza örüntülerini ve cascade risk skorunu içermektedir.
-Her iki modelin yanıtları birleştirilerek tekil bir operasyonel rapor oluşturulmuştur.
-Bellek eşimine ilişkin üretilen kritik öneri aşağıdaki gibidir:
+LLM katmanında zenginleştirilmiş istem Claude Sonnet (\texttt{claude-sonnet-4-6}) modeline iletilmektedir.
+İstem; kapasite tahmin durumunu, SHAP özellik sıralamasını, log anomali özetini, ön-arıza örüntülerini ve cascade risk değerlendirmesini yapılandırılmış metin olarak bir arada sunmaktadır.
+Model bu bağlamı bütünsel olarak değerlendirerek servis bazında önceliklendirilmiş operasyonel öneriler üretmektedir.
 
-\begin{quote}
-\textit{``[UYARI] KAPASİTE — Bellek Kullanımı — Tahmini Eşik Tarihi: 2026-08-15.
-Mevcut Bellek Kullanımı: \%85{,}5 (eşik: \%88{,}0).
-30 günlük medyan artış: +0{,}151\%/gün.
-Tahmini eşik tarihi: 2026-08-15 ($\approx$1{,}5 ay / $\approx$46 gün).
-En etkili SHAP özelliği: \texttt{vm\_count\_rmean\_24h}.
-Aksiyonlar: (1) Bellek sızıntısı şüpheli VM'leri ve servisleri inceleyin. (2) Nova memory\_mb\_used değerini Keystone proje kotalarıyla karşılaştırın. (3) Büyük bellek tahsisi yapan VM'leri daha az yoğun node'lara taşıyın.''}
-\end{quote}
+\autoref{fig:llm-output}'te gösterilen yanıt, Anthropic API (\texttt{claude-sonnet-4-6}) tarafından 2026-06-30 tarihli test kümesi girdisiyle üretilmiştir.
 
-Bu çıktı, tahmin modeli sonuçlarını (eşik tarihi), SHAP açıklamasını (en etkili özellik) ve log analizini (erken uyarı korelasyonu) somut operasyonel aksiyonlarla birleştirerek tek bir karar destek raporu oluşturmaktadır.
+\begin{figure}[htbp]
+    \centering
+    \begin{minipage}{0.96\textwidth}
+    \small
+    \ttfamily
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{4pt}
+
+    \textbf{[Anthropic Claude Sonnet — claude-sonnet-4-6 çıktısı]}
+
+    \medskip
+
+    \textbf{BULUT ALTYAPI OPERASYONEL DEĞERLENDİRME RAPORU}\\
+    \textit{Tarih: 2026-06-30 | Sağlayıcı: Anthropic claude-sonnet-4-6}
+
+    \medskip
+
+    \textbf{YÖNETİCİ ÖZETİ}
+
+    Altyapı, kısa vadede müdahale gerektiren iki kritik sinyal üretmektedir.
+    Bellek eşiğinin yaklaşık 46 gün içinde (\%85{,}5 → \%88{,}0) aşılması beklenmektedir; bu süre, kapasite planlaması için gerçekçi ancak sıkışık bir pencere sunmaktadır.
+    Daha acil olan ise 2026-06-28 tarihinde Nova, Neutron ve Keystone servislerinde eş zamanlı gözlemlenen degradasyon: bu örüntü tarihsel olarak tam arızadan 12--36 saat önce ortaya çıkmaktadır.
+
+    \medskip
+
+    \textbf{1. KRİTİK — BELLEK KAPASİTESİ (Eşik: $\approx$46 gün)}
+
+    Mevcut kullanım \%85{,}5 olup 30 günlük medyan artış hızı $+$0{,}151\%/gün'dür.
+    Bu hızda eşim tarihi 2026-08-15 olarak öngörülmektedir.
+
+    SHAP analizi, tahminin birincil sürücüsünün \texttt{vm\_count\_rmean\_24h} (aktif VM sayısının 24 saatlik hareketli ortalaması) olduğunu göstermektedir; ikincil katkı \texttt{total\_errors\_rsum\_72h}'den (72 saatlik hata toplamı) gelmektedir.
+    Bu, bellek baskısının VM büyümesiyle birlikte servis hatalarının da artmasıyla hızlandığına işaret etmektedir.
+
+    \textit{Önerilen aksiyonlar:}\\
+    (1) Son 7 günde bellek tüketimi en yüksek olan ilk 10 VM'yi belirleyin; aşırı tahsis yapanlar için Nova \texttt{memory\_mb} limitlerini gözden geçirin.\\
+    (2) Nova \texttt{memory\_mb\_used} değerini Keystone proje kotalarıyla karşılaştırın; kota aşımı log z-skoru 4{,}5 ile son derece yüksektir ve birden fazla projenin mevcut kotasını zorladığını göstermektedir.\\
+    (3) Büyük bellekli VM'leri daha az yoğun compute node'lara live-migrate edin; bu hem anlık baskıyı azaltır hem de eşim tarihini öteleyebilir.
+
+    \medskip
+
+    \textbf{2. KRİTİK — CASCADE RİSKİ (2026-06-28, 3 servis)}
+
+    Nova, Neutron ve Keystone'un 08:00--09:00 UTC penceresinde eş zamanlı degradasyonu tespit edilmiştir.
+    Bu örüntü, tek servis arızasından farklı olarak kaynak çekişmesine (resource contention) veya ortak bir altyapı sorununa (ağ ya da depolama katmanı) işaret etmektedir.
+
+    \textit{Önerilen aksiyonlar:}\\
+    (1) 2026-06-28 08:00 itibarıyla Nova, Neutron ve Keystone log'larını çapraz inceleyin; ortak bir hata mesajı veya bağlantı başarısızlığı örüntüsü arayın.\\
+    (2) Bu zaman penceresinde gerçekleşen VM operasyonlarını (launch, delete, resize) belirleyin; yoğun bir iş yükü ani compute ve ağ baskısına yol açmış olabilir.\\
+    (3) Tekrarını önlemek için Nova zamanlayıcısına kaynak başına eş zamanlı işlem sınırı (concurrent build limit) tanımlamayı değerlendirin.
+
+    \medskip
+
+    \textbf{3. UYARI — ÖN-ARIZA SİNYALİ (Yavaş Yanıt, +287\%)}
+
+    \texttt{slow\_response} log sayısı son 7 günde 1{,}285 adet olup geçmiş 15 incident analizi bu log tipinin arızadan ortalama 68 saat önce belirgin artış gösterdiğini ortaya koymaktadır.
+    Bu pencere hâlâ açık durumdadır.
+
+    \textit{Önerilen aksiyonlar:}\\
+    (1) Keystone token doğrulama yanıt sürelerini izleyin; yavaş yanıt loglarının \%60'ı Keystone'dan kaynaklanmaktadır.\\
+    (2) RabbitMQ kuyruk derinliğini kontrol edin; Nova ve Neutron yavaş yanıtları çoğunlukla mesaj kuyruğu gecikmesiyle birlikte ortaya çıkmaktadır.
+
+    \medskip
+
+    \textbf{ÖZET ÖNCELİK SIRASI}\\
+    1. Cascade riskinin kök neden analizi (acil, bugün)\\
+    2. Bellek kota ve VM dağılımı optimizasyonu (bu hafta)\\
+    3. Yavaş yanıt kaynağının tespiti ve izleme artırımı (bu hafta)
+
+    \end{minipage}
+    \caption{Anthropic Claude Sonnet (\texttt{claude-sonnet-4-6}) tarafından üretilen operasyonel öneri raporu — 2026-06-30 tarihli test kümesi girdisi.}
+    \label{fig:llm-output}
+\end{figure}
+
+Bu yanıt, CloudMon'un farklı analiz katmanlarını (kapasite tahmini, SHAP açıklaması, log anomali tespiti, cascade risk) birbirine bağlayan bütünsel bir operasyonel değerlendirme sunmaktadır.
+Kural tabanlı motorun tespit ettiği dokuz uyarı (2 KRİTİK, 7 UYARI), LLM tarafından öncelikli aksiyon sırasına dönüştürülmekte; her öneri hem tahmin hem açıklanabilirlik hem de log kanıtıyla gerekçelendirilmektedir.
 Bu yapı, CloudMon'un bir izleme aracı olmanın ötesine geçerek açıklanabilir ve eyleme dönüştürülebilir öneriler üreten bir operasyonel zekâ sistemi olduğunu göstermektedir.

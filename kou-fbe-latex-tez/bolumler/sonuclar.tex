@@ -1,10 +1,140 @@
-% TODO: Sonuçlar ve Öneriler bölümü — TYK son bölüm zorunlu adı
-% - Temel bulgular özeti
-% - Tezin özgün katkıları
-% - Sınırlılıklar
-% - Gelecek çalışmalar (makale planı)
-
 \chapter{SONUÇLAR VE ÖNERİLER}
 \label{ch:sonuclar}
 
-Bu bölüm yazılacak.
+Bu bölümde CloudMon sisteminin deneysel bulgularından çıkarılan sonuçlar özetlenmekte, çalışmanın özgün katkıları değerlendirilmekte ve çalışmanın sınırlılıkları ile gelecek araştırma önerileri tartışılmaktadır.
+
+
+\section{Temel Bulgular}
+\label{sec:sonuc-bulgular}
+
+Bu çalışma; kapasite tahmini, açıklanabilirlik analizi ve log tabanlı erken uyarı olmak üzere üç ana araştırma ekseninde somut bulgular üretmiştir.
+
+\subsection{Kapasite Tahmin Modeli}
+
+42 model (7 algoritma $\times$ 3 kaynak $\times$ 2 ufuk) değerlendirmesinin en belirgin bulgusu, Doğrusal Regresyon'un (LR) ağaç tabanlı tüm algoritmaları geride bırakmasıdır.
+24 saatlik ufukta LR, vCPU için R\textsuperscript{2}\,=\,0{,}9577, Bellek için R\textsuperscript{2}\,=\,0{,}7945 ve Disk için R\textsuperscript{2}\,=\,0{,}6984 değerlerine ulaşmıştır.
+En yakın rakibi olan Gradyan Artırmalı Ağaçlar, vCPU 24\,s senaryosunda yalnızca R\textsuperscript{2}\,=\,0{,}1079 üretmiştir; bu fark, OpenStack zaman serilerinin test döneminde güçlü monoton trendler barındırdığını ve LR'nin bu trendi gecikme ve hareketli ortalama özellikleri üzerinden doğrudan öğrendiğini göstermektedir.
+
+72 saatlik ufukta sonuçlar kaynak bazında ayrışmaktadır.
+vCPU'da LR, R\textsuperscript{2}\,=\,0{,}7728 ile etkin tahmin gücünü korumuştur.
+Bellek ve Disk'te ise MLP en iyi performer konumuna geçmiş; bununla birlikte R\textsuperscript{2} değerleri sırasıyla 0{,}3456 ve 0{,}2212'ye gerilemiştir.
+Ağaç tabanlı modellerin büyük çoğunluğu 72 saatlik ufuklarda negatif R\textsuperscript{2} üretmiş, yani ortalama tahminden daha kötü performans göstermiştir.
+Bu bulgu, söz konusu modellerin 272 özellikli yüksek boyutlu uzayda eğitim kümesine aşırı uyduğunu ve zaman serisi genellemesinde yetersiz kaldığını ortaya koymaktadır.
+
+\subsection{SHAP Açıklanabilirlik Bulguları}
+
+SHAP analizi, log tabanlı özelliklerin salt metrik özelliklerinden anlamlı biçimde farklılaştığını ve kapasite tahminine bağımsız katkı yaptığını nicel olarak göstermiştir.
+vCPU 24\,s modelinin ilk 10 özelliği arasında dört log özelliği yer almaktadır:
+\texttt{resource\_exhausted\_count\_rsum\_72h} (5.\ sıra, $|\phi|$\,=\,2\,150),
+\texttt{total\_errors\_rsum\_72h} (6.\ sıra, $|\phi|$\,=\,1\,800),
+\texttt{scheduler\_degradation\_count\_rsum\_72h} (9.\ sıra, $|\phi|$\,=\,1\,050) ve
+\texttt{timeout\_count\_rsum\_72h} (10.\ sıra, $|\phi|$\,=\,1\,028).
+Disk 24\,s modelinde ise \texttt{total\_errors\_rsum\_24h} birinci sıraya taşınmış; log özellikleri metrik özelliklerini bile geride bırakmıştır.
+Bu bulgular, log verilerinin kapasite tahmininde salt gürültü değil, anlamlı bir sinyal kaynağı olduğunu kanıtlamakta ve hibrit özellik uzayının kurucu varsayımını doğrulamaktadır.
+
+\subsection{Log Analizi ve Erken Uyarı}
+
+Dört aşamalı log işleme pipeline'ı (trend tespiti, z-skor anomali tespiti, ön-arıza örüntü eşleştirme, cascade risk tespiti) test dönemi (Nisan--Haziran 2026) üzerinde anlamlı sinyaller üretmiştir.
+\textit{Slow\_response} loglarının geçmiş 15 incident analizine göre arızadan ortalama 68 saat önce \%287 oranında artış gösterdiği bulunmuş ve mevcut test dönemi verisi bu örüntüyle örtüşmüştür.
+Kota aşımı loglarının z-skoru 4{,}5'e çıkmış; disk I/O hatası (z\,=\,3{,}6), ağ hatası (z\,=\,2{,}8) ve veritabanı bağlantı hatası (z\,=\,2{,}6) da anormallik eşiğini (\,$\sigma > 2{,}5$) aşmıştır.
+2026-06-28 tarihinde Nova, Neutron ve Keystone servislerinin eş zamanlı degradasyonu cascade risk kanalı tarafından tespit edilmiştir.
+Bu bulgular, log tabanlı erken uyarı mekanizmasının metrik eşik alarmlarına kıyasla üç güne yakın önceden sinyal üretme potansiyeline sahip olduğunu göstermektedir.
+
+\subsection{Öneri Motoru ve LLM Entegrasyonu}
+
+Kural tabanlı motor ve LLM katmanı (Claude Sonnet + GPT-4o) birlikte 9 öneri üretmiştir: 2 KRİTİK ve 7 UYARI.
+LLM'e iletilen zenginleştirilmiş bağlam; kapasite durumunu, log anomali özetini, SHAP özellik sıralamasını ve cascade risk skorunu kapsamaktadır.
+Üretilen öneriler, tahmin modelinin sayısal çıktısını (tahmini eşik tarihi), SHAP açıklamasını (en etkili özellik) ve log analizini (erken uyarı korelasyonu) somut operasyonel aksiyonlarla birleştirmektedir.
+Bu yapı, CloudMon'un reaktif bir izleme aracı olmanın ötesine geçerek açıklanabilir ve eyleme dönüştürülebilir öneriler üreten bir operasyonel zekâ sistemi olduğunu göstermektedir.
+
+
+\section{Tezin Özgün Katkıları}
+\label{sec:sonuc-katkilar}
+
+Bu çalışma, kapsamlı deneysel değerlendirme çerçevesinde aşağıdaki dört özgün katkıyı sunmaktadır:
+
+\begin{enumerate}
+    \item \textbf{Log--metrik korelasyonuna dayalı kapasite tahmini:}
+    Metrik ve log verilerinin ortak bir özellik uzayında birleştirilmesi, her iki veri kaynağının da kapasite tahminine anlamlı katkı yaptığını göstermiştir.
+    SHAP analizi, log tabanlı özelliklerin yalnızca metrik özelliklerini değil, ağaç tabanlı modellerin gördüğü her iki veri tipini de geride bırakabildiğini nicel olarak ortaya koymuştur.
+    Hibrit özellik uzayı, yalnızca metrik tabanlı yaklaşımlara kıyasla SHAP ilk 10'unda \%40 log özellik payıyla (vCPU 24\,s) üstün açıklanabilirlik sunmaktadır.
+
+    \item \textbf{Dört aşamalı log işleme pipeline'ı:}
+    Ham log sayımlarından ön-arıza örüntü eşleştirmesine ve cascade risk tespitine uzanan sistematik analiz hattı, tek bir aşamalı log sayımı yaklaşımlarına kıyasla daha zengin ve erken sinyaller üretmektedir.
+    Ön-arıza örüntüsünün 68 saatlik öncü uyarı özelliği, operasyonel müdahale için pratik bir zaman penceresi sağlamaktadır.
+
+    \item \textbf{Açıklanabilir kapasite tahmin sistemi:}
+    Her tahmin için hesaplanan SHAP değerleri; hangi metriğin ya da log tipinin kararı yönlendirdiğini operatöre aktarmaktadır.
+    Bu yaklaşım, kara kutu tahmin modellerini yorumlanabilir aksiyon önerilerine dönüştürerek bulut operatörlerinin karara güvenmesini ve gereksiz kota artışı kararlarını daha bilinçli değerlendirmesini sağlamaktadır.
+
+    \item \textbf{Zenginleştirilmiş bağlamla LLM destekli öneri motoru:}
+    Kapasite durumu, log anomali sinyalleri, SHAP özellik önem sıralaması ve cascade riski bir araya getirilerek yapılandırılmış bağlam oluşturulmuş; bu bağlam Claude Sonnet ve GPT-4o modellerine iletilmiştir.
+    Üretilen öneriler, sayısal tahmin çıktısı ile yorumsal açıklamayı birleştiren servis bazında önceliklendirilmiş aksiyonlar içermekte; böylece operatörün ayrı sistemlere bakma zorunluluğunu ortadan kaldırmaktadır.
+\end{enumerate}
+
+
+\section{Sınırlılıklar}
+\label{sec:sonuc-sinirliliklar}
+
+Bu çalışmanın değerlendirilmesinde aşağıdaki sınırlılıklar göz önünde bulundurulmalıdır:
+
+\begin{enumerate}
+    \item \textbf{Eğitim kümesi büyüklüğü ve tek küme:}
+    Modeller tek bir OpenStack kümesinin yaklaşık 9 aylık verisine (Temmuz 2025--Mart 2026) dayalı olarak eğitilmiştir.
+    Bu durum, ağaç tabanlı modellerin zaman serisi genellemesinde başarısız olmasının kısmi nedeni olabilir; daha uzun eğitim veya farklı kümelerden elde edilen veriler ağaç modellerini güçlendirebilir.
+    Ayrıca bulgular, yalnızca bu kümenin iş yükü örüntüsü için geçerli olup farklı ölçek veya kullanım biçimlerine sahip OpenStack kümelerine doğrudan genellenemeyebilir.
+
+    \item \textbf{72 saatlik Disk tahmin gücünün sınırlı olması:}
+    Disk 72\,s senaryosunda yalnızca MLP pozitif R\textsuperscript{2} (0{,}2212) üretmiş; diğer tüm modeller rassal tahminden daha kötü performans sergilemiştir.
+    Disk kullanımının uzun vadede sergilediği düzensiz ve veri bağımlı örüntüsü, mevcut özellik kümesiyle yeterince yakalanamamaktadır.
+    Bu tahmin ufku için ek özellik mühendisliği veya daha gelişmiş zaman serisi modelleri gerekmektedir.
+
+    \item \textbf{LLM çıktılarının nesnel değerlendirmesi:}
+    Öneri motorunun LLM katmanı, üretilen önerilerin kalitesini nesnel ölçütlerle değerlendirmek için bir insan değerlendirmesi (human evaluation) ya da karşılaştırma taban çizgisi (baseline) kullanılmamıştır.
+    Mevcut değerlendirme, üretilen aksiyonların içerik kontrolüne dayanmakta olup operasyonel uygulamada etkinliklerini doğrulayan kontrollü bir deney yapılamamıştır.
+
+    \item \textbf{Gerçek zamanlı pipeline yokluğu:}
+    CloudMon, bu çalışma kapsamında toplu (batch) veri işleme ile test edilmiştir.
+    Canlı OpenStack ortamında akış verisi işleme (streaming), model güncelleme gecikmesi ve düşük gecikimli öneri üretimi gibi operasyonel zorluklar deneysel ortamda ele alınmamıştır.
+\end{enumerate}
+
+
+\section{Gelecek Çalışma Önerileri}
+\label{sec:sonuc-gelecek}
+
+Bu çalışmanın bulguları ve sınırlılıkları ışığında aşağıdaki araştırma yönleri önerilmektedir:
+
+\begin{enumerate}
+    \item \textbf{Daha uzun ve çok kümeli veri ile model genellemesi:}
+    Ağaç tabanlı modellerin genelleme yetersizliği, birden fazla OpenStack kümesinden toplanan ve birkaç yıllık zaman aralığını kapsayan verilerle yeniden değerlendirilebilir.
+    Transfer öğrenme yaklaşımları, bir kümede eğitilen modelin diğer kümelere uyarlanmasını sağlayarak küme-özgü eğitim maliyetini azaltabilir.
+
+    \item \textbf{Artımlı ve çevrimiçi öğrenme:}
+    Bulut iş yükleri zamanla değiştiğinden, modellerin yeni gelen verilerle sürekli güncellenmesini sağlayan artımlı öğrenme (incremental learning) ve kavram kayması (concept drift) tespiti mekanizmaları sisteme entegre edilmelidir.
+    Bu yaklaşım, modellerin uzun vadeli operasyonel geçerliliğini koruyacaktır.
+
+    \item \textbf{Gerçek zamanlı akış mimarisi:}
+    Mevcut toplu işleme pipeline'ı, Apache Kafka veya benzer bir akış platformu üzerine yeniden tasarlanarak düşük gecikmeli uyarı üretimi sağlanabilir.
+    Gerçek zamanlı özellik hesaplama, özellikle cascade riski gibi zaman-kritik uyarıların pratikte değer üretmesini mümkün kılacaktır.
+
+    \item \textbf{LLM çıktılarının kontrollü değerlendirmesi:}
+    Öneri motorunun etkinliği, bulut operatörlerinin katılımıyla yürütülecek bir kullanıcı çalışmasıyla ölçülebilir.
+    Bu çalışma; üretilen önerilerin doğruluğunu, uygulanabilirliğini ve operatör güvenini nicel olarak değerlendirme olanağı sunacaktır.
+    Ayrıca farklı LLM modelleri (açık kaynak ile kapalı kaynak) karşılaştırmalı olarak test edilebilir.
+
+    \item \textbf{Disk 72 saatlik tahmin için gelişmiş yöntemler:}
+    Disk kullanımının uzun vadeli örüntüsünü daha iyi yakalamak amacıyla ayrıştırma tabanlı modeller (STL, Prophet) veya LSTM gibi dizi tabanlı derin öğrenme mimarileri araştırılabilir.
+    Ayrıca I/O olaylarına dayalı olay güdümlü (event-driven) özellikler, bu senaryodaki tahmin boşluğunu kapatabilir.
+
+    \item \textbf{Diğer bulut platformlarına genişleme:}
+    CloudMon mimarisinin AWS, Azure veya Kubernetes kümelerine uyarlanması, platform bağımsız bir AIOps çerçevesi geliştirme ve farklı altyapı örüntülerinde bulguların tekrarlanabilirliğini test etme açısından değerli bir araştırma yönü oluşturmaktadır.
+\end{enumerate}
+
+
+\section{Genel Değerlendirme}
+
+Bu tez, OpenStack tabanlı özel bulut altyapılarında proaktif kapasite yönetimini desteklemeye yönelik uçtan uca bir AIOps sistemi olan CloudMon'u tanıtmış ve deneysel olarak değerlendirmiştir.
+Hibrit özellik mühendisliği, açıklanabilir makine öğrenmesi ve LLM tabanlı öneri üretimini entegre eden bu yaklaşım; mevcut literatürdeki izole çalışmaların ötesine geçerek birden fazla analiz katmanını tek bir operasyonel zekâ platformunda bir araya getirmektedir.
+
+Deneysel bulgular, Doğrusal Regresyon'un 24 saatlik ufuklarda ağaç tabanlı modellere kıyasla belirgin biçimde üstün olduğunu; log özelliklerinin SHAP analizinde güçlü bir sinyal kaynağı oluşturduğunu ve dört aşamalı log pipeline'ının metrik eşik alarmlarına üç güne yakın zaman önünde uyarı üretme kapasitesine sahip olduğunu göstermiştir.
+Bu bulgular bir arada değerlendirildiğinde, CloudMon'un bulut operasyonlarında önleyici müdahaleyi destekleyen pratik ve yorumlanabilir bir araç olma potansiyeli taşıdığı sonucuna ulaşılmaktadır.

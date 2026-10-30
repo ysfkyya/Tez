@@ -165,13 +165,33 @@ Her test noktasında yalnızca o ana kadar gözlemlenen veri kullanılmakta; bö
 \section{SHAP Açıklanabilirlik Analizi}
 \label{sec:shap}
 
-Her eğitilmiş model için TreeSHAP (RF, GBT, XGB, LGBM, CatBoost), LinearExplainer (LR) veya Kernel SHAP (MLP) kullanılarak özellik atıf değerleri $\phi_i$ hesaplanmaktadır \autocite{lundberg2017, lundberg2020}.
+\subsection{Neden SHAP?}
+
+Makine öğrenmesi modelleri, özellikle ağaç tabanlı yöntemler, yüksek tahmin başarısı sunmakla birlikte \textit{kara kutu} niteliği taşımaktadır: model neden bu tahmini yaptı sorusunun cevabı doğrudan elde edilememektedir.
+Bulut operasyonu bağlamında bu durum ciddi bir güven sorununa yol açmaktadır; bir operatör ``vCPU kullanımı 74 gün içinde eşiği aşacak'' uyarısını aldığında, bu uyarının arkasındaki sinyali anlayamazsa gerekli aksiyonu almakta tereddüt edebilir.
+
+Geleneksel özellik önem yöntemleri bu sorunu yalnızca kısmen çözebilmektedir.
+Karar ağaçlarının Gini önem ölçütü yüksek kardinaliteli özelliklere sistematik olarak daha yüksek puan vermekte ve özellikler arası korelasyonu göz ardı etmektedir \autocite{breiman2001}.
+Permütasyon önemi ise özelliğin tahmine katkısının yönünü vermemektedir; bir özelliğin yüksek permütasyon skoru tahmini iyileştirdiğini mi yoksa stabilize ettiğini mi gösterdiği belirsiz kalmaktadır.
+
+SHAP (SHapley Additive exPlanations), kooperatif oyun teorisindeki Shapley değerlerini makine öğrenmesine uyarlayan, teorik olarak temellendirilen bir açıklanabilirlik çerçevesidir \autocite{lundberg2017}.
+Her özellik için hesaplanan $\phi_i$ değeri şu garantiyi taşımaktadır: tüm özellik atıf değerlerinin toplamı modelin tahmini ile referans değer (eğitim seti ortalaması) arasındaki farka tam olarak eşittir.
+Bu toplamlanabilirlik (additivity) özelliği sayesinde SHAP, ``bu özellik tahmini ne kadar ve hangi yönde etkiledi'' sorusunu tutarlı biçimde yanıtlamaktadır \autocite{lundberg2020}.
+
+CloudMon bu çerçeveyi iki temel amaç için kullanmaktadır.
+Birincisi, 272 özellikli yüksek boyutlu uzayda hangi metrik ve log özelliklerinin tahmine gerçekten katkı yaptığını saptamak; böylece hibrit özellik uzayının faydası nicel olarak ölçülmektedir.
+İkincisi, her kapasite uyarısına ``en etkili özellik: \texttt{vm\_count\_rmean\_24h}'' biçiminde bir açıklama eklemek ve bu açıklamayı LLM katmanına iletmek; böylece hem operatöre hem de dile dayalı öneri motoruna bağlam sağlanmaktadır.
+
+\subsection{Teknik Uygulama}
+
+Her eğitilmiş model için model tipine uygun SHAP açıklayıcısı seçilmektedir: RF, GBT, XGB, LGBM ve CatBoost için TreeSHAP, LR için LinearExplainer, MLP için KernelSHAP kullanılmaktadır \autocite{lundberg2017, lundberg2020}.
+Bu seçim, her yöntem için teorik geçerlilik koşullarını karşılamaktadır; TreeSHAP ağaç yapılarını verimli biçimde gezer, LinearExplainer doğrusal modellerde analitik çözüm üretir.
 
 Üç tür görselleştirme üretilmektedir:
 \begin{maddelendir}[label=--]
-    \item \textbf{Bar grafiği:} global özellik önem sıralaması (ortalama $|\phi_i|$).
-    \item \textbf{Beeswarm grafiği:} her gözlem için $\phi_i$ dağılımı ve özellik değeriyle renk kodlaması.
-    \item \textbf{Bağımlılık grafiği:} seçili özellik ile $\phi_i$ arasındaki ilişki.
+    \item \textbf{Bar grafiği:} tüm test gözlemlerinde ortalama $|\phi_i|$ ile global özellik önem sıralaması.
+    \item \textbf{Beeswarm grafiği:} her gözlem için $\phi_i$ değerinin dağılımı ve özellik değeriyle renk kodlaması; hem global hem de yerel örüntüleri görselleştirir.
+    \item \textbf{Bağımlılık grafiği:} seçili bir özelliğin değeri ile SHAP katkısı arasındaki ilişki; doğrusal olmayan etkileri ortaya koymaktadır.
 \end{maddelendir}
 
 vCPU tahmininde elde edilen bar grafiği \autoref{fig:shap-bar-vcpu}'da verilmektedir.
@@ -187,11 +207,36 @@ vCPU tahmininde elde edilen bar grafiği \autoref{fig:shap-bar-vcpu}'da verilmek
 \section{Öneri Motoru ve LLM Entegrasyonu}
 \label{sec:oneri}
 
-Öneri motoru iki katmandan oluşmaktadır:
+\subsection{Neden LLM?}
+
+Kural tabanlı sistemler, eşik aşımlarını ve log anomalilerini güvenilir biçimde tespit eder; ancak bu sinyalleri birleştirerek operatörün ne yapması gerektiğini söyleyemez.
+Gerçek bir bulut ortamında aynı anda onlarca uyarı tetiklenebilir: bellek eşiğine yaklaşma, kota aşımı log artışı, zamanlayıcı bozulma ve üç servisin eş zamanlı degradasyonu birbirinden bağımsız alarm olarak göründüğünde, operatör önce hangisine müdahale edeceğine kendi deneyimiyle karar vermek zorunda kalır.
+
+Büyük Dil Modelleri (BDM/LLM), yapılandırılmış bağlam verildiğinde bu sentezi doğal dil akıl yürütmesiyle gerçekleştirebilmektedir.
+LLM, hem sayısal verileri (kullanım oranı, z-skoru, tahmini gün sayısı) hem de niteliksel sinyalleri (SHAP sıralaması, ön-arıza örüntüsü, cascade riski) birden okuyan bir uzman gibi davranmakta; bunları önceliklendirilmiş ve gerekçelendirilmiş aksiyon önerilerine dönüştürmektedir \autocite{brown2020, openai2023, anthropic2024}.
+
+CloudMon'da LLM katmanının iki kritik işlevi vardır.
+Birincisi, kural motorunun ürettiği ayrı uyarıları tek bir tutarlı operasyonel rapora sentezlemek; ikincisi, SHAP'ın sağladığı ``en etkili özellik'' açıklamasını doğal dil bağlamına taşıyarak operatörün tahminin \textit{neden} yapıldığını anlamasını sağlamaktır.
+Bu yaklaşım, CloudMon'u salt bir izleme aracından açıklanabilir ve eyleme dönüştürülebilir bir karar destek sistemine dönüştürmektedir.
+
+\subsection{Neden Zenginleştirilmiş Bağlam?}
+
+LLM performansı, aldığı bağlamın kalitesiyle doğrudan ilişkilidir.
+Ham metrik sayıları (``vCPU \%79{,}6, Bellek \%85{,}5'') tek başına bir operasyonel değer taşımaz; modelin bu sayılardan eyleme dönüştürülebilir bir öneri çıkarabilmesi için trendin yönü, beklenen eşik tarihi, log örüntüleri ve SHAP açıklaması gibi bağlam katmanlarına ihtiyacı vardır.
+Bu nedenle CloudMon, LLM'e gönderilen istemde şu bilgi katmanlarını birleştirmektedir:
+
+\begin{maddelendir}[label=--]
+    \item Kapasite durumu: mevcut kullanım oranı, eşik değeri, trend ve tahmini aşım tarihi
+    \item SHAP özellik sıralaması: tahmine en çok katkı yapan metrik veya log tipi (operatörün müdahale noktasını belirlemesi için)
+    \item Log anomali özeti: z-skor eşiklerini aşan log tipleri ve yüzdesel artış değerleri
+    \item Ön-arıza örüntüsü: geçmiş incident imzalarıyla örtüşen güncel log artışları ve tarihsel öncü süre
+    \item Cascade risk bilgisi: eş zamanlı degradasyon gösteren servisler
+    \item Servis sağlık durumu: her OpenStack servisinin anlık durum özeti
+\end{maddelendir}
 
 \subsection{Kural Tabanlı Katman}
 
-Dört öneri kanalı bulunmaktadır:
+LLM'e iletilmeden önce kural tabanlı motor dört kanaldan uyarı üretmektedir:
 \begin{maddelendir}[label=\arabic*.]
     \item \textbf{Kapasite kanalı:} Kapasite modeli tahminleri ve lineer trend analizi birleştirilmekte; tahmini eşik aşım tarihi hesaplanmaktadır. vCPU için $+0{,}275\%$/gün artış trendi ve \%90 eşiği göz önüne alındığında tahmini eşik tarihi çalışma zamanında dinamik olarak belirlenmektedir.
     \item \textbf{Log anomali kanalı:} Z-skor eşiğini ($\sigma > 2{,}5$) aşan log tiplerinde uyarı üretilmektedir.
@@ -201,6 +246,7 @@ Dört öneri kanalı bulunmaktadır:
 
 \subsection{LLM Katmanı}
 
-Kural tabanlı katmanın çıktıları, mevcut metrik durumu, log özeti, SHAP özellik sıralaması ve servis sağlık durumu birleştirilerek yapılandırılmış bir istem oluşturulmaktadır.
+Kural tabanlı katmanın çıktıları yukarıda listelenen bağlam katmanlarıyla birleştirilerek yapılandırılmış bir istem oluşturulmaktadır.
 Bu istem Claude Sonnet (\texttt{claude-sonnet-4-6}) ve GPT-4o (\texttt{gpt-4o}) modellerine paralel olarak iletilmektedir.
-Her iki modelin yanıtı tek bir operasyonel rapora derlenmekte; öncelik sıralaması (KRİTİK / UYARI) ve somut aksiyon önerileri içermektedir.
+Her iki modelin yanıtı tek bir operasyonel rapora derlenmekte; KRİTİK / UYARI öncelik sıralaması ve servis bazında somut aksiyon önerileri içermektedir.
+API anahtarı yapılandırılmadığında sistem, kural tabanlı katmanın çıktılarını doğrudan raporlamakta; LLM sentez katmanı devre dışı kalmaktadır.
